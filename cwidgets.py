@@ -248,11 +248,50 @@ class Container(Widget):
         for i in self.children[:]:
             self.remove(i)
 
-class BoxContainer(Container):
+class SingleContainer(Container):
+    def __init__(self, **kwds):
+        Container.__init__(self, **kwds)
+        self.cmaxsize = kwds.get('cmaxsize', (None, None))
+        self._chps = None
+    def _child_prefsize(self):
+        if self._chps is not None:
+            pass
+        elif len(self.children) == 0:
+            self._chps = (0, 0)
+        else:
+            c, cms = self.children[0].getprefsize(), self.cmaxsize
+            self._chps = (min(c[0], cms[0]) if cms[0] is not None else c[0],
+                          min(c[1], cms[1]) if cms[1] is not None else c[1])
+        return self._chps
+    def add(self, widget, **config):
+        while len(self.children) > 0:
+            self.remove(self.children[0])
+        self._chps = None
+        return Container.add(self, widget, **config)
+    def invalidate_layout(self):
+        Container.invalidate_layout(self)
+        self._chps = None
+
+class VisibilityContainer(SingleContainer):
     class Visibility(Singleton): pass
     VIS_VISIBLE = Visibility('VIS_VISIBLE')
     VIS_HIDDEN = Visibility('VIS_HIDDEN')
     VIS_COLLAPSE = Visibility('VIS_COLLAPSE')
+    def __init__(self, **kwds):
+        SingleContainer.__init__(self, **kwds)
+        self.visibility = kwds.get('visibility', self.VIS_VISIBLE)
+    def getprefsize(self):
+        if self.visibility == self.VIS_COLLAPSE:
+            return (0, 0)
+        else:
+            return SingleContainer.getprefsize(self)
+    def draw(self, win):
+        if self.visibility != self.VIS_VISIBLE: return
+        self.draw_inner(win)
+    def draw_inner(self, win):
+        SingleContainer.draw(self, win)
+
+class BoxContainer(VisibilityContainer):
     @staticmethod
     def parse_quad(v):
         try:
@@ -299,70 +338,46 @@ class BoxContainer(Container):
         return ((pdsx[0][0], pdsy[0][0], pdsx[0][1], pdsy[0][1]),
                 (pdsx[1][0], pdsy[1][0], pdsx[1][1], pdsy[1][1]))
     def __init__(self, **kwds):
-        Container.__init__(self, **kwds)
+        VisibilityContainer.__init__(self, **kwds)
         self.margin = self.parse_quad(kwds.get('margin', 0))
         self.border = self.parse_quad(kwds.get('border', 0))
         self.padding = self.parse_quad(kwds.get('padding', 0))
-        self.visibility = kwds.get('visibility', self.VIS_VISIBLE)
         self.attr_margin = kwds.get('attr_margin', None)
         self.attr_box = kwds.get('attr_box', None)
         self.ch_margin = kwds.get('ch_margin', '\0')
         self.ch_box = kwds.get('ch_box', '\0')
-        self.cmaxsize = kwds.get('cmaxsize', (None, None))
-        self._chps = None
         self._box_rect = None
         self._widget_rect = None
-    def getprefsize(self):
-        if self.visibility == self.VIS_COLLAPSE:
-            return (0, 0)
-        else:
-            return Container.getprefsize(self)
-    def _calc_chps(self):
-        if self._chps is not None:
-            return
-        elif len(self.children) == 0:
-            self._chps = (0, 0)
-        else:
-            c, cms = self.children[0].getprefsize(), self.cmaxsize
-            self._chps = (min(c[0], cms[0]) if cms[0] is not None else c[0],
-                          min(c[1], cms[1]) if cms[1] is not None else c[1])
     def layout_prefsize(self):
-        self._calc_chps()
+        chps = self._child_prefsize()
         # Lambda calculus!
         x = lambda d: lambda k: (lambda v: 0 if v is None else v)(d[k])
         m, b, p = x(self.margin), x(self.border), x(self.padding)
-        return (m(3) + bool(b(3)) + p(3) + self._chps[0] +
+        return (m(3) + bool(b(3)) + p(3) + chps[0] +
                 p(1) + bool(b(1)) + m(1),
-                m(0) + bool(b(0)) + p(0) + self._chps[1] +
+                m(0) + bool(b(0)) + p(0) + chps[1] +
                 p(2) + bool(b(2)) + m(2))
     def relayout(self):
-        self.layout_prefsize()
+        chps = self._child_prefsize()
         br, wr = self.calc_pads(self.size, self.margin,
-            list(map(bool, self.border)), self.padding, self._chps)
+            list(map(bool, self.border)), self.padding, chps)
         self._box_rect = shiftrect(br, self.pos)
         self._widget_rect = shiftrect(wr, self.pos)
         if len(self.children) > 0:
             self.children[0].pos = self._widget_rect[:2]
             self.children[0].size = self._widget_rect[2:]
-    def draw(self, win):
-        if self.visibility != self.VIS_VISIBLE: return
+    def draw_inner(self, win):
         BoxWidget.draw_box(win, self.pos, self.size, self.attr_margin,
                            self.ch_margin, False)
         BoxWidget.draw_box(win, self._box_rect[:2], self._box_rect[2:],
                            self.attr_box, self.ch_box, self.border)
-        Container.draw(self, win)
+        VisibilityContainer.draw_inner(self, win)
     def invalidate(self, rec=False, child=None):
-        Container.invalidate(self, True, child)
+        VisibilityContainer.invalidate(self, True, child)
     def invalidate_layout(self):
-        Container.invalidate_layout(self)
-        self._chps = None
+        VisibilityContainer.invalidate_layout(self)
         self._box_rect = None
         self._widget_rect = None
-    def add(self, widget, **config):
-        while len(self.children) > 0:
-            self.remove(self.children[0])
-        self._chps = None
-        return Container.add(self, widget, **config)
 
 class StackContainer(Container):
     def __init__(self, **kwds):
