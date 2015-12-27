@@ -15,7 +15,6 @@ def maxpos(p1, p2):
 def shiftrect(r, p):
     return (r[0] + p[0], r[1] + p[1], r[2], r[3])
 
-# Tested for every combination of full and amnt <= 1000.
 def linear_distrib(full, amnt):
     if full == 0:
         return [0] * amnt
@@ -30,6 +29,35 @@ def linear_distrib(full, amnt):
         ret.append(base + inc)
     assert sum(ret) == full, 'linear_distrib() failed'
     return ret
+
+def parse_pair(v, default=(None, None)):
+    try:
+        v = tuple(v)
+    except TypeError:
+        v = (v, v)
+    return (default[0] if v[0] is None else v[0],
+            default[1] if v[1] is None else v[1])
+def parse_quad(v, default=(None, None, None, None)):
+    try:
+        v = tuple(v)
+    except TypeError:
+        v = (v,)
+    if len(v) == 0:
+        raise ValueError('Too few values to parse_quad()!')
+    elif len(v) == 1:
+        v *= 4
+    elif len(v) == 2:
+        v *= 2
+    elif len(v) == 3:
+        return (v[0], v[1], v[2], v[1])
+    elif len(v) == 4:
+        pass
+    else:
+        raise ValueError('Too many values to parse_quad()!')
+    return (default[0] if v[0] is None else v[0],
+            default[1] if v[1] is None else v[1],
+            default[2] if v[2] is None else v[2],
+            default[3] if v[3] is None else v[3])
 
 class Singleton:
     def __init__(self, __name__, __dict__=None):
@@ -292,24 +320,6 @@ class VisibilityContainer(SingleContainer):
         SingleContainer.draw(self, win)
 
 class BoxContainer(VisibilityContainer):
-    @staticmethod
-    def parse_quad(v):
-        try:
-            v = tuple(v)
-        except TypeError:
-            v = (v,)
-        if len(v) == 0:
-            raise ValueError('Too few values to parse_quad()!')
-        elif len(v) == 1:
-            return v * 4
-        elif len(v) == 2:
-            return v * 2
-        elif len(v) == 3:
-            return (v[0], v[1], v[2], v[1])
-        elif len(v) == 4:
-            return v
-        else:
-            raise ValueError('Too many values to parse_quad()!')
     @classmethod
     def calc_pads_1d(cls, outer, margin, border, padding, size):
         def inset(avlrect, pad, prefsize):
@@ -339,9 +349,9 @@ class BoxContainer(VisibilityContainer):
                 (pdsx[1][0], pdsy[1][0], pdsx[1][1], pdsy[1][1]))
     def __init__(self, **kwds):
         VisibilityContainer.__init__(self, **kwds)
-        self.margin = self.parse_quad(kwds.get('margin', 0))
-        self.border = self.parse_quad(kwds.get('border', 0))
-        self.padding = self.parse_quad(kwds.get('padding', 0))
+        self.margin = parse_quad(kwds.get('margin', 0))
+        self.border = parse_quad(kwds.get('border', 0))
+        self.padding = parse_quad(kwds.get('padding', 0))
         self.attr_margin = kwds.get('attr_margin', None)
         self.attr_box = kwds.get('attr_box', None)
         self.ch_margin = kwds.get('ch_margin', '\0')
