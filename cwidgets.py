@@ -446,6 +446,56 @@ class AlignContainer(VisibilityContainer):
         VisibilityContainer.invalidate_layout(self)
         self._wbox = None
 
+class Viewport(SingleContainer):
+    def __init__(self, **kwds):
+        SingleContainer.__init__(self, **kwds)
+        self.default_attr = kwds.get('default_attr', None)
+        self.default_ch = kwds.get('default_ch', '\0')
+        self.background = kwds.get('background', None)
+        self.background_ch = kwds.get('background_ch', '\0')
+        self._pad = None
+    def relayout(self):
+        chps = self._child_prefsize()
+        if len(self.children) > 0:
+            self.children[0].pos = (0, 0)
+            self.children[0].size = maxpos(self.size, chps)
+    def draw(self, win):
+        Widget.draw(self, win)
+        if len(self.children) == 0: return
+        chsz = self.children[0].size
+        pad_changed = True
+        if self._pad is None:
+            self._pad = _curses.newpad(chsz[1], chsz[0])
+            if self.default_attr is not None:
+                self._pad.bkgd(self.default_ch, self.default_attr)
+        else:
+            padsz = self._pad.getmaxyx()
+            if padsz[1] != chsz[0] or padsz[0] != chsz[1]:
+                self._pad.resize(chsz[1], chsz[0])
+            else:
+                pad_changed = False
+        if pad_changed:
+            if self.background is not None:
+                fill = self._pad.derwin(0, 0)
+                fill.bkgd(self.background_ch, self.background)
+                fill.clear()
+            self.children[0].invalidate(True)
+        self.children[0].draw(self._pad)
+        if self.size[0] > 0 and self.size[1] > 0:
+            self._pad.overwrite(win, 0, 0, self.pos[1], self.pos[0],
+                                self.pos[1] + self.size[1] - 1,
+                                self.pos[0] + self.size[0] - 1)
+    def invalidate(self, rec=False, child=None):
+        if len(self.children) > 0 and child is self.children[0]:
+            # Child's drawing space is independent from mine; only generic
+            # semantics apply.
+            Widget.invalidate(self, rec, child)
+        else:
+            SingleContainer.invalidate(self, rec, child)
+    def invalidate_layout(self):
+        SingleContainer.invalidate_layout(self)
+        self._pad = None
+
 class StackContainer(Container):
     def __init__(self, **kwds):
         Container.__init__(self, **kwds)
@@ -875,8 +925,10 @@ class TextWidget(BoxWidget):
             y += 1
         win.addstr(self.pos[1] + i, self.pos[0] + i, pref,
                    self.attr)
-        win.addstr(self.pos[1] + i + h - 1, self.pos[0] + i + w + len(pref),
-                   suff, self.attr)
+        if suff:
+            win.addstr(self.pos[1] + i + h - 1,
+                       self.pos[0] + i + w + len(pref),
+                       suff, self.attr)
     def _text_prefix(self):
         return ''
     def _text_suffix(self):
@@ -1057,7 +1109,8 @@ def mainloop(scr):
     _curses.init_pair(2, _curses.COLOR_BLACK, _curses.COLOR_WHITE)
     _curses.init_pair(3, _curses.COLOR_BLACK, _curses.COLOR_RED)
     _curses.init_pair(4, _curses.COLOR_GREEN, _curses.COLOR_BLACK)
-    obx = wr.add(BoxContainer(margin=None, border=(0, 0, 0, 1),
+    rv = wr.add(Viewport())
+    obx = rv.add(BoxContainer(margin=None, border=(0, 0, 0, 1),
                               padding=(1, 2, 1, 2),
                               attr_margin=_curses.color_pair(1),
                               attr_box=_curses.color_pair(4)))
@@ -1070,7 +1123,8 @@ def mainloop(scr):
     rdb1 = c1.add(grp.add(RadioBox('test 1')))
     btne = c1.add(BoxContainer(margin=(0, 0, None)), weight=1).add(
         Button('exit', sys.exit, background=_curses.color_pair(3)))
-    c2 = lo.add(VerticalContainer())
+    vp = lo.add(Viewport(background=_curses.color_pair(2)))
+    c2 = vp.add(VerticalContainer())
     btnr = c2.add(Button('----------------\nback\n----------------',
                          text_back_changer, align=ALIGN_CENTER,
                          background=_curses.color_pair(3), border=0),
@@ -1081,7 +1135,7 @@ def mainloop(scr):
     rdb3 = grid.add(grp.add(RadioBox('test 3', callback=shrink)), pos=(0, 1))
     twgc = grid.add(Label(background=_curses.color_pair(3),
                           align=ALIGN_CENTER), pos=(2, 0))
-    grid.add(Label('[2,2]', align=ALIGN_RIGHT,
+    grid.add(Label('[3,2]', align=ALIGN_RIGHT,
                    background=_curses.color_pair(3)),
              pos=(3, 2))
     grid.add(Label('[0,3]'), pos=(0, 3))
