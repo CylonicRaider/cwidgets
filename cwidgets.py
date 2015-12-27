@@ -288,9 +288,32 @@ class Container(Widget):
             self.remove(i)
 
 class SingleContainer(Container):
+    class ScalePolicy(Singleton): pass
+    # Leave widget at preferred size.
+    SCALE_PREFERRED = ScalePolicy('SCALE_PREFERRED')
+    # Push widget to minimum of preferred size and available size.
+    SCALE_COMPRESS = ScalePolicy('SCALE_COMPRESS')
+    # Stretch widget to maximum of preferred size and available size.
+    SCALE_STRETCH = ScalePolicy('SCALE_STRETCH')
+    # Force widget to fit available size.
+    SCALE_FIT = ScalePolicy('SCALE_FIT')
+    @classmethod
+    def _calc_eff_wbox(cls, pref, avl, scale, align):
+        if avl == pref or scale == cls.SCALE_PREFERRED:
+            size = pref
+        elif scale == cls.SCALE_COMPRESS:
+            size = min(pref, avl)
+        elif scale == cls.SCALE_STRETCH:
+            size = max(pref, avl)
+        elif scale == cls.SCALE_FIT:
+            size = avl
+        else:
+            raise ValueError('Invalid scale for _calc_eff_wbox')
+        return (int((avl - size) * align), size)
     def __init__(self, **kwds):
         Container.__init__(self, **kwds)
         self.cmaxsize = kwds.get('cmaxsize', (None, None))
+        self.scale = parse_pair(kwds.get('scale', self.SCALE_FIT))
         self.align = parse_pair(kwds.get('align', ALIGN_CENTER))
         self._chps = None
     def _child_prefsize(self):
@@ -303,6 +326,20 @@ class SingleContainer(Container):
             self._chps = (min(c[0], cms[0]) if cms[0] is not None else c[0],
                           min(c[1], cms[1]) if cms[1] is not None else c[1])
         return self._chps
+    def relayout(self):
+        self.relayout_inner(tuple(self.pos) + tuple(self.size))
+    def relayout_inner(self, wbox):
+        if len(self.children) == 0: return
+        cpref = self._child_prefsize()
+        ewbox = sum(zip(
+            self._calc_eff_wbox(cpref[0], wbox[2],
+                                self.scale[0], self.align[0]),
+            self._calc_eff_wbox(cpref[1], wbox[3],
+                                self.scale[1], self.align[1])
+            ), ())
+        ewbox = shiftrect(ewbox, wbox[:2])
+        self.children[0].pos = ewbox[:2]
+        self.children[0].size = ewbox[2:]
     def add(self, widget, **config):
         while len(self.children) > 0:
             self.remove(self.children[0])
@@ -385,9 +422,7 @@ class BoxContainer(VisibilityContainer):
             list(map(bool, self.border)), self.padding, chps)
         self._box_rect = shiftrect(br, self.pos)
         self._widget_rect = shiftrect(wr, self.pos)
-        if len(self.children) > 0:
-            self.children[0].pos = self._widget_rect[:2]
-            self.children[0].size = self._widget_rect[2:]
+        self.relayout_inner(self._widget_rect)
     def draw_inner(self, win):
         BoxWidget.draw_box(win, self.pos, self.size, self.attr_margin,
                            self.ch_margin, False)
@@ -1016,9 +1051,8 @@ def mainloop(scr):
                               padding=(1, 2, 1, 2),
                               attr_margin=_curses.color_pair(1),
                               attr_box=_curses.color_pair(4)))
-    box = obx.add(BoxContainer(attr_margin=_curses.color_pair(1),
-                               attr_box=_curses.color_pair(2),
-                               margin=None, border=True))
+    box = obx.add(BoxContainer(attr_box=_curses.color_pair(2),
+                               border=True))
     lo = box.add(HorizontalContainer())
     c1 = lo.add(VerticalContainer())
     btnt = c1.add(Button('test', text_changer))
