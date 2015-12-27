@@ -60,16 +60,27 @@ def parse_quad(v, default=(None, None, None, None)):
             default[3] if v[3] is None else v[3])
 
 class Singleton:
-    def __init__(self, __name__, __dict__=None):
-        if __dict__ is None: __dict__ = {}
+    def __init__(self, __name__, **__dict__):
         self.__dict__ = __dict__
         self.__name__ = __name__
     def __repr__(self):
         return '<%s>' % (self.__name__,)
     def __str__(self):
         return str(self.__name__)
+
 class Event(Singleton): pass
 FocusEvent = Event('FocusEvent')
+
+class Alignment(Singleton, float):
+    def __new__(cls, __value__, __name__, **__dict__):
+        return float.__new__(cls, __value__)
+    def __init__(self, __value__, __name__, **__dict__):
+        Singleton.__init__(self, __name__, **__dict__)
+ALIGN_TOP = Alignment(0.0, 'ALIGN_TOP')
+ALIGN_LEFT = Alignment(0.0, 'ALIGN_LEFT')
+ALIGN_CENTER = Alignment(0.5, 'ALIGN_CENTER')
+ALIGN_RIGHT = Alignment(1.0, 'ALIGN_RIGHT')
+ALIGN_BOTTOM = Alignment(1.0, 'ALIGN_BOTTOM')
 
 class WidgetRoot(object):
     def __init__(self, window):
@@ -280,6 +291,7 @@ class SingleContainer(Container):
     def __init__(self, **kwds):
         Container.__init__(self, **kwds)
         self.cmaxsize = kwds.get('cmaxsize', (None, None))
+        self.align = parse_pair(kwds.get('align', ALIGN_CENTER))
         self._chps = None
     def _child_prefsize(self):
         if self._chps is not None:
@@ -449,10 +461,10 @@ class PlacerContainer(StackContainer):
 
 class LinearContainer(Container):
     class Rule(Singleton): pass
-    RULE_STAY = Rule('RULE_STAY', {'advances': (0, 0)})
-    RULE_RIGHT = Rule('RULE_RIGHT', {'advances': (1, 0)})
-    RULE_DOWN = Rule('RULE_DOWN', {'advances': (0, 1)})
-    RULE_DIAG = Rule('RULE_DIAG', {'advances': (1, 1)})
+    RULE_STAY = Rule('RULE_STAY', advances=(0, 0))
+    RULE_RIGHT = Rule('RULE_RIGHT', advances=(1, 0))
+    RULE_DOWN = Rule('RULE_DOWN', advances=(0, 1))
+    RULE_DIAG = Rule('RULE_DIAG', advances=(1, 1))
     class Mode(Singleton): pass
     MODE_NORMAL = Mode('MODE_NORMAL')
     MODE_STRETCH = Mode('MODE_STRETCH')
@@ -772,18 +784,12 @@ class BoxWidget(Widget):
             self.background_ch, self.border)
 
 class TextWidget(BoxWidget):
-    ALIGN_TOP = 0.0
-    ALIGN_LEFT = 0.0
-    ALIGN_CENTER = 0.5
-    ALIGN_RIGHT = 1.0
-    ALIGN_BOTTOM = 1.0
     def __init__(self, text='', **kwds):
         BoxWidget.__init__(self, **kwds)
         self.attr = kwds.get('attr', 0)
         self.textbg = kwds.get('textbg', Ellipsis)
         self.textbgch = kwds.get('textbgch', '\0')
-        self.align = kwds.get('align', self.ALIGN_LEFT)
-        self.valign = kwds.get('valign', self.ALIGN_TOP)
+        self.align = parse_pair(kwds.get('align'), (ALIGN_LEFT, ALIGN_TOP))
         self._text = None
         self._lines = ()
         self._indents = ()
@@ -798,9 +804,9 @@ class TextWidget(BoxWidget):
         ew = (self.size[0] - len(self._text_prefix()) -
               len(self._text_suffix()) - 2 * i)
         eh = self.size[1] - 2 * i
-        self._indents = tuple(int((ew - len(l)) * self.align)
+        self._indents = tuple(int((ew - len(l)) * self.align[0])
                               for l in self._lines)
-        self._vindent = int((eh - len(self._lines)) * self.valign)
+        self._vindent = int((eh - len(self._lines)) * self.align[0])
     def draw(self, win):
         BoxWidget.draw(self, win)
         i = (1 if self.border else 0)
@@ -1021,7 +1027,7 @@ def mainloop(scr):
         Button('exit', sys.exit, background=_curses.color_pair(3)))
     c2 = lo.add(VerticalContainer())
     btnr = c2.add(Button('----------------\nback\n----------------',
-                         text_back_changer, align=TextWidget.ALIGN_CENTER,
+                         text_back_changer, align=ALIGN_CENTER,
                          background=_curses.color_pair(3), border=0),
                   weight=1)
     gbox = c2.add(BoxContainer())
@@ -1029,8 +1035,8 @@ def mainloop(scr):
     rdb2 = grid.add(grp.add(RadioBox('test 2', callback=grow)), pos=(0, 0))
     rdb3 = grid.add(grp.add(RadioBox('test 3', callback=shrink)), pos=(0, 1))
     twgc = grid.add(Label(background=_curses.color_pair(3),
-                          align=TextWidget.ALIGN_CENTER), pos=(2, 0))
-    grid.add(Label('[2,2]', align=TextWidget.ALIGN_RIGHT,
+                          align=ALIGN_CENTER), pos=(2, 0))
+    grid.add(Label('[2,2]', align=ALIGN_RIGHT,
                    background=_curses.color_pair(3)),
              pos=(3, 2))
     grid.add(Label('[0,3]'), pos=(0, 3))
