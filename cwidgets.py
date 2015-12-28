@@ -10,6 +10,8 @@ _KEY_SPACE = ord(' ')
 
 def addpos(p1, p2):
     return (p1[0] + p2[0], p1[1] + p2[1])
+def minpos(p1, p2):
+    return (min(p1[0], p2[0]), min(p1[1], p2[1]))
 def maxpos(p1, p2):
     return (max(p1[0], p2[0]), max(p1[1], p2[1]))
 def shiftrect(r, p):
@@ -28,7 +30,23 @@ def linear_distrib(full, amnt):
         inc, crem = divmod(crem + rem, amnt)
         ret.append(base + inc)
     assert sum(ret) == full, 'linear_distrib() failed'
+    assert crem == rem, 'linear_distrib() failed'
     return ret
+def weight_distrib(full, weights):
+    if full == 0:
+        return [0] * len(weights)
+    elif not weights:
+        return []
+    sw = float(sum(weights))
+    fr = [full * w / sw for w in weights]
+    r, rem = [], 0.0
+    for i in fr:
+        i, lrem = divmod(i, 1.0)
+        inc, rem = divmod(rem + lrem, 1.0)
+        r.append(int(i + inc))
+    assert sum(r) == full, 'weight_distrib() failed'
+    assert rem == 0, 'weight_distrib() failed'
+    return r
 
 def parse_pair(v, default=(None, None)):
     try:
@@ -167,8 +185,11 @@ class Widget(object):
         self.parent = None
         self.pos = None
         self.size = None
+        self.can_shrink = False
         self.valid_display = False
         self.valid_layout = False
+    def getminsize(self):
+        return self.getprefsize()
     def getprefsize(self):
         return self.minsize
     def make(self):
@@ -200,10 +221,19 @@ class Container(Widget):
         self.children = []
         self._focused = None
         self._cprefsize = None
+        self._cminsize = None
+    def getminsize(self):
+        if not self._cminsize:
+            self._cminsize = self.layout_minsize()
+        return maxpos(self.minsize, self._cminsize)
     def getprefsize(self):
         if not self._cprefsize:
             self._cprefsize = self.layout_prefsize()
         return maxpos(self.minsize, self._cprefsize)
+    def layout_minsize(self):
+        wh = (0, 0)
+        for i in self.children: wh = maxpos(wh, i.getminsize())
+        return wh
     def layout_prefsize(self):
         wh = (0, 0)
         for i in self.children: wh = maxpos(wh, i.getprefsize())
@@ -261,6 +291,7 @@ class Container(Widget):
                 i.invalidate(rec)
     def invalidate_layout(self):
         Widget.invalidate_layout(self)
+        self._cminsize = None
         self._cprefsize = None
         for w in self.children:
             w.invalidate_layout()
@@ -449,11 +480,18 @@ class AlignContainer(VisibilityContainer):
 class Viewport(SingleContainer):
     def __init__(self, **kwds):
         SingleContainer.__init__(self, **kwds)
+        self.maxsize = kwds.get('maxsize', (None, None))
         self.default_attr = kwds.get('default_attr', None)
         self.default_ch = kwds.get('default_ch', '\0')
         self.background = kwds.get('background', None)
         self.background_ch = kwds.get('background_ch', '\0')
         self._pad = None
+    def getminsize(self):
+        return (0, 0)
+    def getprefsize(self):
+        ps, ms = SingleContainer.getprefsize(self), self.maxsize
+        return ((ps[0] if ms[0] is None else min(ps[0], ms[0])),
+                (ps[1] if ms[1] is None else min(ps[1], ms[1])))
     def relayout(self):
         chps = self._child_prefsize()
         if len(self.children) > 0:
@@ -566,43 +604,48 @@ class LinearContainer(Container):
     MODE_EQUAL = Mode('MODE_EQUAL')
     MODE_EQUAL_FORCE = Mode('MODE_EQUAL_FORCE')
     @classmethod
-    def _make_groups(cls, initial, advances, weights):
-        glengths, gsizes, gweights = [], [], []
+    def _make_groups(cls, initial, mins, advances, weights, sweights):
+        glengths, gmins, gsizes, gweights, gsweights = [], [], [], [], []
         first = True
-        for i, a, w in zip(initial, advances, weights):
+        for i, m, a, w, s in zip(initial, mins, advances, weights, sweights):
             if a or first:
                 first = False
                 glengths.append(0)
+                gmins.append(0)
                 gsizes.append(0)
                 gweights.append(0)
+                gsweights.append(1)
             glengths[-1] += 1
+            gmins[-1] = max(gmins[-1], m)
             gsizes[-1] = max(gsizes[-1], i)
             gweights[-1] = w
-        return (glengths, gsizes, gweights)
+            gsweights[-1] = s
+        return (glengths, gmins, gsizes, gweights, gsweights)
     @classmethod
     def _unpack_groups(cls, values, lengths):
         return sum(((v,) * l for v, l in zip(values, lengths)), ())
     @classmethod
-    def _distrib_normal(cls, full, initial, advances, weights, mode):
-        glengths, gsizes, gweights = cls._make_groups(initial, advances,
-                                                      weights)
-        if all(i == 0 for i in gweights):
+    def _distrib_normal(cls, full, initial, mins, advances, weights,
+                        sweights, mode):
+        glengths, gmins, gsizes, gweights, gsweights = cls._make_groups(
+            initial, mins, advances, weights, sweights)
+        if sum(gweights) == 0:
             if mode == cls.MODE_STRETCH:
                 gweights = (1,) * len(gweights)
             else:
-                return sum(((k,) * l for k, l in zip(gsizes, glengths)), ())
-        d, sw = full - sum(gsizes), float(sum(gweights))
-        ir = [i + d * w / sw for i, w in zip(gsizes, gweights)]
-        r, ae = [], 0.0
-        for e in ir:
-            i, lae = divmod(e, 1.0)
-            q, ae = divmod(ae + lae, 1.0)
-            r.append(int(i + q))
+                return cls._unpack_groups(gsizes, glengths)
+        incs = weight_distrib(full - sum(gsizes), gweights)
+        r = [l + i for l, i in zip(gsizes, incs)]
+        sr, sm = sum(r), sum(mins)
+        if sr > full and sm < sr:
+            sdec = max(sm - sr, sm - full)
+            pass
         return cls._unpack_groups(r, glengths)
     @classmethod
-    def _distrib_equal(cls, full, initial, advances, weights, mode):
-        glengths, gsizes, gweights = cls._make_groups(initial, advances,
-                                                      weights)
+    def _distrib_equal(cls, full, initial, mins, advances, weights,
+                       sweights, mode):
+        glengths, gmins, gsizes, gweights, gsweights = cls._make_groups(
+            initial, mins, advances, weights, sweights)
         distr = linear_distrib(full, len(advances))
         if mode != cls.MODE_EQUAL_FORCE:
             while True:
@@ -620,16 +663,19 @@ class LinearContainer(Container):
                     distr[n] = l
         return cls._unpack_groups(distr, glengths)
     @classmethod
-    def distribute(cls, full, initial, advances, weights, mode=MODE_NORMAL):
-        if not len(initial) == len(advances) == len(weights):
+    def distribute(cls, full, initial, mins, advances, weights,
+                   sweights, mode=MODE_NORMAL):
+        if not (len(initial) == len(mins) == len(advances) == len(weights) ==
+                len(sweights)):
             raise ValueError('Incoherent lists given to distribute().')
-        if not initial: return ()
-        if mode in (cls.MODE_NORMAL, cls.MODE_STRETCH):
-            return cls._distrib_normal(full, initial, advances,
-                                       weights, mode)
+        elif not initial:
+            return ()
+        elif mode in (cls.MODE_NORMAL, cls.MODE_STRETCH):
+            return cls._distrib_normal(full, initial, mins, advances,
+                                       weights, sweights, mode)
         elif mode in (cls.MODE_EQUAL, cls.MODE_EQUAL_FORCE):
-            return cls._distrib_equal(full, initial, advances,
-                                      weights, mode)
+            return cls._distrib_equal(full, initial, mins, advances,
+                                      weights, sweights, mode)
         else:
             raise ValueError('Invalid mode: %r' % (mode,))
     def __init__(self, **kwds):
@@ -640,9 +686,15 @@ class LinearContainer(Container):
         self._rules = {}
         self._weights_x = {}
         self._weights_y = {}
+        self._sweights_x = {}
+        self._sweights_y = {}
         self._preboxes = None
         self._prefsize = None
+        self._minsize = None
         self._boxes = None
+    def layout_minsize(self):
+        self._make_preboxes()
+        return self._minsize
     def layout_prefsize(self):
         self._make_preboxes()
         return self._prefsize
@@ -653,53 +705,71 @@ class LinearContainer(Container):
             w.size = wh
     def invalidate_layout(self):
         Container.invalidate_layout(self)
-        self._preboxes, self._prefsize, self._boxes = None, None, None
+        self._preboxes = None
+        self._minsize = None
+        self._prefsize = None
+        self._boxes = None
     def add(self, widget, **config):
         self._rules[widget] = config.get('rule', self.default_rule)
         w = config.get('weight', 0.0)
         self._weights_x[widget] = config.get('weight_x', w)
         self._weights_y[widget] = config.get('weight_y', w)
+        sw = config.get('sweight', 1.0)
+        self._sweights_x[widget] = config.get('sweight_x', sw)
+        self._sweights_y[widget] = config.get('sweight_y', sw)
         return Container.add(self, widget, **config)
     def remove(self, widget):
         Container.remove(self, widget)
         del self._rules[widget]
         del self._weights_x[widget]
         del self._weights_y[widget]
+        del self._sweights_x[widget]
+        del self._sweights_y[widget]
     def _make_preboxes(self):
         if self._preboxes is not None: return
-        cp, ms, amnt, tps = (0, 0), (0, 0), [0, 0], (0, 0)
+        cp, mps, mms = (0, 0), (0, 0), (0, 0)
+        amnt, tps, tms = [0, 0], (0, 0), (0, 0)
         self._preboxes = []
         for w in self.children:
-            ps, r = w.getprefsize(), self._rules[w]
-            ms = maxpos(ms, ps)
-            self._preboxes.append((w, cp, tuple(ps)))
+            ps, ms, r = w.getprefsize(), w.getminsize(), self._rules[w]
+            mps, mms = maxpos(mps, ps), maxpos(mms, ms)
+            self._preboxes.append((w, cp, tuple(ps), tuple(ms)))
             tps = maxpos(tps, (cp[0] + ps[0], cp[1] + ps[1]))
+            tms = maxpos(tms, (cp[0] + ms[0], cp[1] + ms[1]))
             amnt[0] += r.advances[0]
             amnt[1] += r.advances[1]
             cp = (cp[0] + ps[0] * r.advances[0],
                   cp[1] + ps[1] * r.advances[1])
-        tps = list(tps)
+        tps, tms = list(tps), list(tms)
         if self.mode_x in (self.MODE_EQUAL, self.MODE_EQUAL_FORCE):
-            tps[0] = ms[0] * amnt[0]
+            tps[0] = mps[0] * amnt[0]
+            tms[0] = mms[0] * amnt[0]
         if self.mode_y in (self.MODE_EQUAL, self.MODE_EQUAL_FORCE):
-            tps[1] = ms[1] * amnt[1]
+            tps[1] = mps[1] * amnt[1]
+            tms[1] = mms[1] * amnt[1]
         self._prefsize = tps
+        self._minsize = tms
     def _make_boxes(self, size):
         if self._boxes is not None: return
         self._make_preboxes()
-        sizes, advances, weights = [], [], []
-        for w, xy, wh in self._preboxes:
+        sizes, mins, advances, weights = [], [], [], []
+        for w, xy, wh, ms in self._preboxes:
             sizes.append(wh)
+            mins.append(ms)
             advances.append(self._rules[w].advances)
             weights.append((self._weights_x[w],
                             self._weights_y[w]))
-        zs = tuple(zip(*sizes))
+            sweights.append((self._sweights_x[w],
+                             self._sweights_y[w]))
+        zl = tuple(zip(*sizes))
+        zm = tuple(zip(*mins))
         za = tuple(zip(*advances))
         zw = tuple(zip(*weights))
-        esizes = zip(self.distribute(size[0], zs[0],
-                                     za[0], zw[0], self.mode_x),
-                     self.distribute(size[1], zs[1],
-                                     za[1], zw[1], self.mode_y))
+        zs = tuple(zip(*sweights))
+        esizes = zip(self.distribute(size[0], zl[0], zm[0],
+                                     za[0], zw[0], zs[0], self.mode_x),
+                     self.distribute(size[1], zl[1], zm[1],
+                                     za[1], zw[1], zs[0], self.mode_y))
         self._boxes = []
         cp = (0, 0)
         for w, s in zip(self.children, esizes):
@@ -732,9 +802,14 @@ class GridContainer(Container):
         self._columnConfig = {}
         self._rowConfig = {}
         self._presizes = None
+        self._minsizes = None
         self._prefsize = None
+        self._minsize = None
         self._offsets = None
         self._sizes = None
+    def layout_minsize(self):
+        self._make_presizes()
+        return self._minsize
     def layout_prefsize(self):
         self._make_presizes()
         return self._prefsize
@@ -747,7 +822,11 @@ class GridContainer(Container):
             w.size = (szx[pos[0]], szy[pos[1]])
     def invalidate_layout(self):
         Container.invalidate_layout(self)
-        self._presizes, self._prefsize, self._sizes = None, None, None
+        self._presizes = None
+        self._minsizes = None
+        self._prefsize = None
+        self._minsize = None
+        self._sizes = None
     def add(self, widget, **config):
         pos = config['pos']
         try:
@@ -762,9 +841,11 @@ class GridContainer(Container):
         pos = self._places.pop(widget)
         del self._widgets[pos]
     def _config(self, d, idx, kwds):
-        conf = d.setdefault(idx, {'weight': 0, 'minsize': 0})
+        conf = d.setdefault(idx, {'weight': 0, 'sweight': 1, 'minsize': 0})
         if 'weight' in kwds:
             conf['weight'] = kwds['weight']
+        if 'sweight' in kwds:
+            conf['sweight'] = kwds['sweight']
         if 'minsize' in kwds:
             conf['minsize'] = kwds['minsize']
         self.invalidate_layout()
@@ -774,48 +855,67 @@ class GridContainer(Container):
         self._config(self._columnConfig, col, kwds)
     def _make_presizes(self):
         if self._presizes is not None: return
-        psx, psy = [], []
+        psx, psy, msx, msy = [], [], [], []
         for pos, w in self._widgets.items():
             x, y = pos
             xp1, yp1 = x + 1, y + 1
             while len(psx) < xp1: psx.append(0)
+            while len(msx) < xp1: msx.append(0)
             while len(psy) < yp1: psy.append(0)
-            wps = w.getprefsize()
+            while len(msy) < yp1: msy.append(0)
+            wps, wms = w.getprefsize(), w.getminsize()
             psx[x] = max(psx[x], wps[0])
+            msx[x] = max(msx[x], wms[0])
             psy[y] = max(psy[y], wps[1])
+            msy[y] = max(msy[y], wms[1])
         for x, conf in self._columnConfig.items():
             xp1 = x + 1
             while len(psx) < xp1: psx.append(0)
+            while len(msx) < xp1: msx.append(0)
             psx[x] = max(psx[x], conf['minsize'])
+            msx[x] = max(msx[x], conf['minsize'])
         for y, conf in self._rowConfig.items():
             yp1 = y + 1
             while len(psy) < yp1: psy.append(0)
+            while len(msy) < yp1: msy.append(0)
             psy[y] = max(psy[y], conf['minsize'])
+            msy[y] = max(msy[y], conf['minsize'])
         lm = (LinearContainer.MODE_EQUAL,
               LinearContainer.MODE_EQUAL_FORCE)
         tps = [sum(psx), sum(psy)]
+        tms = [sum(msx), sum(msy)]
         if psx and self.mode_x in lm:
             tps[0] = max(psx) * len(psx)
+            tms[0] = max(msx) * len(msx)
         if psy and self.mode_y in lm:
             tps[1] = max(psy) * len(psy)
+            tms[1] = max(msy) * len(msy)
         self._presizes = (psx, psy)
+        self._minsizes = (msx, msy)
         self._prefsize = tps
+        self._minsize = tms
     def _make_sizes(self, size):
         if self._sizes is not None: return
         self._make_presizes()
         # Distribute sizes
         weights_x = [0] * len(self._presizes[0])
         weights_y = [0] * len(self._presizes[1])
+        sweights_x = [1] * len(self._presizes[0])
+        sweights_y = [1] * len(self._presizes[1])
         advances_x = (1,) * len(self._presizes[0])
         advances_y = (1,) * len(self._presizes[1])
         for x, conf in self._columnConfig.items():
             weights_x[x] = conf['weight']
+            sweights_x[x] = conf['sweight']
         for y, conf in self._rowConfig.items():
             weights_y[y] = conf['weight']
+            sweights_y[y] = conf['sweight']
         sizes_x = LinearContainer.distribute(size[0], self._presizes[0],
-            advances_x, weights_x, self.mode_x)
+            self._minsizes[0], advances_x, weights_x, sweihgts_x,
+            self.mode_x)
         sizes_y = LinearContainer.distribute(size[1], self._presizes[1],
-            advances_y, weights_y, self.mode_y)
+            self._minsizes[1], advances_y, weights_y, sweights_y,
+            self.mode_y)
         self._sizes = (sizes_x, sizes_y)
         # Make offsets
         ofx, ofy, x, y = [], [], 0, 0
