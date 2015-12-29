@@ -8,6 +8,8 @@ _KEY_RETURN = ord('\n')
 _KEY_TAB = ord('\t')
 _KEY_SPACE = ord(' ')
 
+LOG = []
+
 def addpos(p1, p2):
     return (p1[0] + p2[0], p1[1] + p2[1])
 def minpos(p1, p2):
@@ -322,7 +324,18 @@ class SingleContainer(Container):
     def __init__(self, **kwds):
         Container.__init__(self, **kwds)
         self.cmaxsize = kwds.get('cmaxsize', (None, None))
+        self._chms = None
         self._chps = None
+    def _child_minsize(self, **kwds):
+        if self._chms is not None:
+            pass
+        elif len(self.children) == 0:
+            self._chms = (0, 0)
+        else:
+            c, cms = self.children[0].getminsize(), self.cmaxsize
+            self._chms = (min(c[0], cms[0]) if cms[0] is not None else c[0],
+                          min(c[1], cms[1]) if cms[1] is not None else c[1])
+        return self._chms
     def _child_prefsize(self):
         if self._chps is not None:
             pass
@@ -372,30 +385,37 @@ class BoxContainer(VisibilityContainer):
     # Force widget to fit available size.
     SCALE_FIT = ScalePolicy('SCALE_FIT')
     @classmethod
-    def calc_pads_1d(cls, outer, margin, border, padding, size):
-        def inset(avlrect, pad, prefsize):
-            free = avlrect[1] - prefsize
-            if pad[0] is None and pad[1] is None:
-                return (avlrect[0] + free // 2, prefsize)
-            elif pad[0] is None:
-                return (avlrect[0] + free, prefsize)
-            elif pad[1] is None:
-                return (avlrect[0], prefsize)
+    def calc_pads_1d(cls, outer, margin, border, padding, size, minsize):
+        def inset(avl, pad, prefsize, minsize):
+            free = avl[1] - prefsize
+            if free < 0:
+                size = max(avl[1], minsize)
+                free = avl[1] - size
             else:
-                return (avlrect[0] + pad[0], avlrect[1] - pad[0] - pad[1])
+                size = prefsize
+            if pad[0] is None and pad[1] is None:
+                return (avl[0] + free // 2, size)
+            elif pad[0] is None:
+                return (avl[0] + free, size)
+            elif pad[1] is None:
+                return (avl[0], size)
+            else:
+                return (avl[0] + pad[0], avl[1] - pad[0] - pad[1])
         zin = lambda x: 0 if x is None else x
         prefsize_bp = (border[0] + zin(padding[0]) + size +
                        zin(padding[1]) + border[1])
-        ret = [inset((0, outer), margin, prefsize_bp)]
-        avlrect = (ret[0][0] + border[0], ret[0][1] - border[0] - border[1])
-        ret.append(inset(avlrect, padding, size))
+        minsize_bp = (border[0] + zin(padding[0]) + minsize +
+                      zin(padding[1]) + border[1])
+        ret = [inset((0, outer), margin, prefsize_bp, minsize_bp)]
+        avl = (ret[0][0] + border[0], ret[0][1] - border[0] - border[1])
+        ret.append(inset(avl, padding, size, minsize))
         return ret
     @classmethod
-    def calc_pads(cls, outer, margin, border, padding, size):
+    def calc_pads(cls, outer, margin, border, padding, size, minsize):
         pdsx = cls.calc_pads_1d(outer[0], margin[3::-2], border[3::-2],
-                                padding[3::-2], size[0])
+                                padding[3::-2], size[0], minsize[0])
         pdsy = cls.calc_pads_1d(outer[1], margin[::2], border[::2],
-                                padding[::2], size[1])
+                                padding[::2], size[1], minsize[1])
         return ((pdsx[0][0], pdsy[0][0], pdsx[0][1], pdsy[0][1]),
                 (pdsx[1][0], pdsy[1][0], pdsx[1][1], pdsy[1][1]))
     def __init__(self, **kwds):
@@ -409,19 +429,26 @@ class BoxContainer(VisibilityContainer):
         self.ch_box = kwds.get('ch_box', '\0')
         self._box_rect = None
         self._widget_rect = None
-    def layout_prefsize(self):
-        chps = self._child_prefsize()
+    def calc_insets(self):
         # Lambda calculus!
         x = lambda d: lambda k: (lambda v: 0 if v is None else v)(d[k])
         m, b, p = x(self.margin), x(self.border), x(self.padding)
-        return (m(3) + bool(b(3)) + p(3) + chps[0] +
-                p(1) + bool(b(1)) + m(1),
-                m(0) + bool(b(0)) + p(0) + chps[1] +
-                p(2) + bool(b(2)) + m(2))
+        return (m(0) + bool(b(0)) + p(0),
+                m(1) + bool(b(1)) + p(1),
+                m(2) + bool(b(2)) + p(2),
+                m(3) + bool(b(3)) + p(3))
+    def layout_minsize(self):
+        chms, ins = self._child_minsize(), self.calc_insets()
+        return (ins[3] + chms[0] + ins[1],
+                ins[0] + chms[1] + ins[2])
+    def layout_prefsize(self):
+        chps, ins = self._child_prefsize(), self.calc_insets()
+        return (ins[3] + chps[0] + ins[1],
+                ins[0] + chps[1] + ins[2])
     def relayout(self):
-        chps = self._child_prefsize()
+        chps, chms = self._child_prefsize(), self._child_minsize()
         br, wr = self.calc_pads(self.size, self.margin,
-            list(map(bool, self.border)), self.padding, chps)
+            list(map(bool, self.border)), self.padding, chps, chms)
         self._box_rect = shiftrect(br, self.pos)
         self._widget_rect = shiftrect(wr, self.pos)
         if len(self.children) > 0:
@@ -480,27 +507,36 @@ class AlignContainer(VisibilityContainer):
 class Viewport(SingleContainer):
     def __init__(self, **kwds):
         SingleContainer.__init__(self, **kwds)
-        self.maxsize = kwds.get('maxsize', (None, None))
+        self.restrict_size = kwds.get('restrict_size', True)
         self.default_attr = kwds.get('default_attr', None)
         self.default_ch = kwds.get('default_ch', '\0')
         self.background = kwds.get('background', None)
         self.background_ch = kwds.get('background_ch', '\0')
         self._pad = None
     def getminsize(self):
-        return (0, 0)
+        ps, ms = SingleContainer.getminsize(self), self.cmaxsize
+        return ((ps[0] if ms[0] is None else min(ps[0], ms[0])),
+                (ps[1] if ms[1] is None else min(ps[1], ms[1])))
     def getprefsize(self):
-        ps, ms = SingleContainer.getprefsize(self), self.maxsize
+        ps, ms = SingleContainer.getprefsize(self), self.cmaxsize
         return ((ps[0] if ms[0] is None else min(ps[0], ms[0])),
                 (ps[1] if ms[1] is None else min(ps[1], ms[1])))
     def relayout(self):
-        chps = self._child_prefsize()
+        chps, chms = self._child_prefsize(), self._child_minsize()
         if len(self.children) > 0:
             self.children[0].pos = (0, 0)
-            self.children[0].size = maxpos(self.size, chps)
+            if self.restrict_size:
+                chs = (chms[0] if chps[0] > self.size[0] else chps[0],
+                       chms[1] if chps[1] > self.size[1] else chps[1])
+            else:
+                chs = chps
+            self.children[0].size = maxpos(self.size, chs)
     def draw(self, win):
         Widget.draw(self, win)
-        if len(self.children) == 0: return
-        chsz = self.children[0].size
+        if len(self.children) == 0:
+            chsz = (0, 0)
+        else:
+            chsz = self.children[0].size
         pad_changed = True
         if self._pad is None:
             self._pad = _curses.newpad(chsz[1], chsz[0])
@@ -517,19 +553,25 @@ class Viewport(SingleContainer):
                 fill = self._pad.derwin(0, 0)
                 fill.bkgd(self.background_ch, self.background)
                 fill.clear()
-            self.children[0].invalidate(True)
-        self.children[0].draw(self._pad)
-        if self.size[0] > 0 and self.size[1] > 0:
-            self._pad.overwrite(win, 0, 0, self.pos[1], self.pos[0],
-                                self.pos[1] + self.size[1] - 1,
-                                self.pos[0] + self.size[0] - 1)
+            if len(self.children) > 0:
+                self.children[0].invalidate(True)
+        if len(self.children) > 0:
+            self.children[0].draw(self._pad)
+        self._pad.overwrite(win, 0, 0, self.pos[1], self.pos[0],
+                            self.pos[1] + self.size[1] - 1,
+                            self.pos[0] + self.size[0] - 1)
+    def grab_cursor(self, pos):
+        if pos is not None: pos = addpos(self.pos, pos)
+        return SingleContainer.grab_cursor(self, pos)
     def invalidate(self, rec=False, child=None):
-        if len(self.children) > 0 and child is self.children[0]:
-            # Child's drawing space is independent from mine; only generic
-            # semantics apply.
-            Widget.invalidate(self, rec, child)
+        if rec:
+            # Required for some reason... :S
+            SingleContainer.invalidate(self, True, child)
         else:
-            SingleContainer.invalidate(self, rec, child)
+            # Child is rendered to offscreen pad, cannot be invalidated by
+            # anything that happens to me (invalidated in draw() if
+            # necessary).
+            Widget.invalidate(self, rec, child)
     def invalidate_layout(self):
         SingleContainer.invalidate_layout(self)
         self._pad = None
@@ -636,10 +678,6 @@ class LinearContainer(Container):
                 return cls._unpack_groups(gsizes, glengths)
         incs = weight_distrib(full - sum(gsizes), gweights)
         r = [l + i for l, i in zip(gsizes, incs)]
-        sr, sm = sum(r), sum(mins)
-        if sr > full and sm < sr:
-            sdec = max(sm - sr, sm - full)
-            pass
         return cls._unpack_groups(r, glengths)
     @classmethod
     def _distrib_equal(cls, full, initial, mins, advances, weights,
@@ -752,15 +790,13 @@ class LinearContainer(Container):
     def _make_boxes(self, size):
         if self._boxes is not None: return
         self._make_preboxes()
-        sizes, mins, advances, weights = [], [], [], []
+        sizes, mins, advances, weights, sweights = [], [], [], [], []
         for w, xy, wh, ms in self._preboxes:
             sizes.append(wh)
             mins.append(ms)
             advances.append(self._rules[w].advances)
-            weights.append((self._weights_x[w],
-                            self._weights_y[w]))
-            sweights.append((self._sweights_x[w],
-                             self._sweights_y[w]))
+            weights.append((self._weights_x[w], self._weights_y[w]))
+            sweights.append((self._sweights_x[w], self._sweights_y[w]))
         zl = tuple(zip(*sizes))
         zm = tuple(zip(*mins))
         za = tuple(zip(*advances))
@@ -769,18 +805,14 @@ class LinearContainer(Container):
         esizes = zip(self.distribute(size[0], zl[0], zm[0],
                                      za[0], zw[0], zs[0], self.mode_x),
                      self.distribute(size[1], zl[1], zm[1],
-                                     za[1], zw[1], zs[0], self.mode_y))
+                                     za[1], zw[1], zs[1], self.mode_y))
         self._boxes = []
         cp = (0, 0)
         for w, s in zip(self.children, esizes):
             self._boxes.append((w, cp, s))
             r = self._rules[w]
-            if r == self.RULE_RIGHT:
-                cp = (cp[0] + s[0], cp[1])
-            elif r == self.RULE_DOWN:
-                cp = (cp[0], cp[1] + s[1])
-            elif r == self.RULE_DIAG:
-                cp = addpos(cp, s)
+            cp = (cp[0] + s[0] * r.advances[0],
+                  cp[1] + s[1] * r.advances[1])
 
 class HorizontalContainer(LinearContainer):
     def __init__(self, **kwds):
@@ -911,7 +943,7 @@ class GridContainer(Container):
             weights_y[y] = conf['weight']
             sweights_y[y] = conf['sweight']
         sizes_x = LinearContainer.distribute(size[0], self._presizes[0],
-            self._minsizes[0], advances_x, weights_x, sweihgts_x,
+            self._minsizes[0], advances_x, weights_x, sweights_x,
             self.mode_x)
         sizes_y = LinearContainer.distribute(size[1], self._presizes[1],
             self._minsizes[1], advances_y, weights_y, sweights_y,
@@ -930,7 +962,7 @@ class GridContainer(Container):
 class BoxWidget(Widget):
     @staticmethod
     def draw_box(win, pos, size, attr, ch, border):
-        if size[0] <= 0 or size[1] <= 0:
+        if pos[0] < 0 or pos[1] < 0 or size[0] <= 0 or size[1] <= 0:
             return
         sw = win.derwin(size[1], size[0], pos[1], pos[0])
         if not attr is None:
@@ -1180,6 +1212,21 @@ class RadioGroup(BaseRadioGroup):
         self._set_active(widget)
 
 def mainloop(scr):
+    class Strut(Widget):
+        def __init__(self, **kwds):
+            Widget.__init__(self, **kwds)
+            self.min_size = kwds.get('min_size', None)
+            self.pref_size = kwds.get('pref_size', None)
+        def getminsize(self):
+            if self.min_size is None:
+                return Widget.getminsize(self)
+            else:
+                return self.min_size
+        def getprefsize(self):
+            if self.pref_size is None:
+                return Widget.getprefsize(self)
+            else:
+                return self.pref_size
     def text_changer():
         btnt.text = 'test... 42'
     def text_back_changer():
@@ -1187,19 +1234,13 @@ def mainloop(scr):
     def wr_make():
         make_counter[0] += 1
         twgc.text = str(make_counter[0])
-        if gbox.cmaxsize == (None, None):
-            gbox.cmaxsize = grid.getprefsize()
         WidgetRoot.make(wr)
     def grow():
-        cms = gbox.cmaxsize
-        gbox.cmaxsize = (cms[0] + 1, cms[1])
-        gbox.minsize = gbox.cmaxsize
-        gbox.invalidate_layout()
+        stru.pref_size[0] += 1
+        stru.invalidate_layout()
     def shrink():
-        cms = gbox.cmaxsize
-        gbox.cmaxsize = (cms[0] - 1, cms[1])
-        gbox.minsize = gbox.cmaxsize
-        gbox.invalidate_layout()
+        stru.pref_size[0] -= 1
+        stru.invalidate_layout()
     import sys
     make_counter = [0]
     wr = WidgetRoot(scr)
@@ -1216,8 +1257,7 @@ def mainloop(scr):
                               attr_box=_curses.color_pair(4)))
     box = obx.add(BoxContainer(attr_box=_curses.color_pair(2),
                                border=True))
-    wrp = box.add(SingleContainer())
-    lo = wrp.add(HorizontalContainer())
+    lo = box.add(HorizontalContainer())
     c1 = lo.add(VerticalContainer())
     btnt = c1.add(Button('test', text_changer))
     rdb1 = c1.add(grp.add(RadioBox('test 1')))
@@ -1229,8 +1269,10 @@ def mainloop(scr):
                          text_back_changer, align=ALIGN_CENTER,
                          background=_curses.color_pair(3), border=0),
                   weight=1)
-    gbox = c2.add(BoxContainer())
-    grid = gbox.add(GridContainer(mode_x=LinearContainer.MODE_EQUAL))
+    gbox = c2.add(BoxContainer(margin=(1, 2),
+                               attr_margin=_curses.color_pair(1),
+                               attr_box=_curses.color_pair(2)))
+    grid = gbox.add(GridContainer(mode_y=LinearContainer.MODE_EQUAL))
     rdb2 = grid.add(grp.add(RadioBox('test 2', callback=grow)), pos=(0, 0))
     rdb3 = grid.add(grp.add(RadioBox('test 3', callback=shrink)), pos=(0, 1))
     twgc = grid.add(Label(background=_curses.color_pair(3),
@@ -1239,14 +1281,20 @@ def mainloop(scr):
                    background=_curses.color_pair(3)),
              pos=(3, 2))
     grid.add(Label('[0,3]'), pos=(0, 3))
-    grid.config_col(0, minsize=7)
+    stru = c2.add(Strut(pref_size=[20, 0], min_size=[0, 0]))
+    grid.config_col(0)
     grid.config_col(1, minsize=1)
-    grid.config_col(2, minsize=3, weight=1)
-    grid.config_col(3, minsize=7)
-    grid.config_row(1, minsize=1)
+    grid.config_col(2, weight=1)
+    grid.config_col(3)
+    grid.config_row(1)
     wr.main()
 
 def main():
-    _curses.wrapper(mainloop)
+    try:
+        _curses.wrapper(mainloop)
+    finally:
+        import sys
+        sys.stderr.write('\n'.join(map(str, LOG)) + '\n')
+        sys.stderr.flush()
 
 if __name__ == '__main__': main()
