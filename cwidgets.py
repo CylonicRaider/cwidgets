@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # -*- coding: ascii -*-
 
 # *** Minimalistic curses-based widget library for Python ***
@@ -678,6 +679,8 @@ class LinearContainer(Container):
                 return cls._unpack_groups(gsizes, glengths)
         incs = weight_distrib(full - sum(gsizes), gweights)
         r = [l + i for l, i in zip(gsizes, incs)]
+        if sum(gsizes) > full:
+            LOG.append((full, sum(gsizes), sum(r), gsizes, r))
         return cls._unpack_groups(r, glengths)
     @classmethod
     def _distrib_equal(cls, full, initial, mins, advances, weights,
@@ -1293,8 +1296,9 @@ def main():
     try:
         _curses.wrapper(mainloop)
     finally:
-        import sys
-        sys.stderr.write('\n'.join(map(str, LOG)) + '\n')
-        sys.stderr.flush()
+        if LOG:
+            import sys
+            sys.stderr.write('\n'.join(map(str, LOG)) + '\n')
+            sys.stderr.flush()
 
 if __name__ == '__main__': main()
