@@ -677,10 +677,29 @@ class LinearContainer(Container):
                 gweights = (1,) * len(gweights)
             else:
                 return cls._unpack_groups(gsizes, glengths)
-        incs = weight_distrib(full - sum(gsizes), gweights)
-        r = [l + i for l, i in zip(gsizes, incs)]
-        if sum(gsizes) > full:
-            LOG.append((full, sum(gsizes), sum(r), gsizes, r))
+        diff = full - sum(gsizes)
+        if diff > 0:
+            incs = weight_distrib(diff, gweights)
+            r = [l + i for l, i in zip(gsizes, incs)]
+        elif diff < 0:
+            r = list(gsizes)
+            while 1:
+                indices, weights, diffs = [], [], []
+                for i, w in enumerate(gsweights):
+                    if w == 0: continue
+                    d = gmins[i] - r[i]
+                    if d >= 0: continue
+                    indices.append(i)
+                    weights.append(w)
+                    diffs.append(d)
+                if not indices: break
+                incs = [max(i, j) for i, j in zip(diffs,
+                    weight_distrib(full - sum(r), weights))]
+                for idx, inc in zip(indices, incs):
+                    r[idx] += inc
+                if sum(r) == full: break
+        else:
+            r = gsizes
         return cls._unpack_groups(r, glengths)
     @classmethod
     def _distrib_equal(cls, full, initial, mins, advances, weights,
