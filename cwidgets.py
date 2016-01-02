@@ -352,10 +352,10 @@ class SingleContainer(Container):
     def add(self, widget, **config):
         while len(self.children) > 0:
             self.remove(self.children[0])
-        self._chps = None
         return Container.add(self, widget, **config)
     def invalidate_layout(self):
         Container.invalidate_layout(self)
+        self._chms = None
         self._chps = None
 
 class VisibilityContainer(SingleContainer):
