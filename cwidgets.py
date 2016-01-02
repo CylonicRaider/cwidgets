@@ -457,8 +457,6 @@ class BoxContainer(VisibilityContainer):
         if len(self.children) > 0:
             self.children[0].pos = self._widget_rect[:2]
             self.children[0].size = self._widget_rect[2:]
-        LOG.append(('<bc> w m p s', self.children[0], chms, chps,
-                    self.children[0].size))
     def draw_inner(self, win):
         BoxWidget.draw_box(win, self.pos, self.size, self.attr_margin,
                            self.ch_margin, False)
@@ -536,8 +534,6 @@ class Viewport(SingleContainer):
                 chs = chps
             self.children[0].pos = (0, 0)
             self.children[0].size = maxpos(self.size, chs)
-            LOG.append(('<vp> w m p s', self.children[0],
-                        chms, chps, self.children[0].size))
     def draw(self, win):
         Widget.draw(self, win)
         if len(self.children) == 0:
@@ -841,11 +837,6 @@ class LinearContainer(Container):
                      self.distribute(size[1], zl[1], zm[1],
                                      za[1], zw[1], zs[1], self.mode_y))
         esizes = list(esizes)
-        if isinstance(self, HorizontalContainer):
-            LOG.append(('<hc> tm tp ts es ses',
-                        self.getminsize(), self.getprefsize(),
-                        size, esizes, (sum(i[0] for i in esizes),
-                                       sum(i[1] for i in esizes))))
         self._boxes = []
         cp = (0, 0)
         for w, s in zip(self.children, esizes):
@@ -1326,7 +1317,7 @@ def mainloop(scr):
                    background=_curses.color_pair(3)),
              pos=(3, 2))
     grid.add(Label('[0,3]'), pos=(0, 3))
-    stru = c2.add(Strut(pref_size=[110, 0], min_size=[100, 0]))
+    stru = c2.add(Strut(pref_size=[20, 0], min_size=[10, 0]))
     grid.config_col(0)
     grid.config_col(1, minsize=1)
     grid.config_col(2, weight=1)
@@ -1335,13 +1326,13 @@ def mainloop(scr):
     wr.main()
 
 def main():
-    try:
-        _curses.wrapper(mainloop)
-    finally:
-        if LOG:
-            LOG.append('')
-            import sys
-            sys.stderr.write('\n'.join(map(str, LOG)))
-            sys.stderr.flush()
+    #try:
+    _curses.wrapper(mainloop)
+    #finally:
+    #    if LOG:
+    #        LOG.append('')
+    #        import sys
+    #        sys.stderr.write('\n'.join(map(str, LOG)))
+    #        sys.stderr.flush()
 
 if __name__ == '__main__': main()
