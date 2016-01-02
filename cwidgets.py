@@ -47,8 +47,10 @@ def weight_distrib(full, weights):
         i, lrem = divmod(i, 1.0)
         inc, rem = divmod(rem + lrem, 1.0)
         r.append(int(i + inc))
+    # Rounding errors.
+    if 0 < rem <= 1 and sum(r) + 1 == full:
+        r[-1] += 1
     assert sum(r) == full, 'weight_distrib() failed'
-    assert rem == 0, 'weight_distrib() failed'
     return r
 
 def parse_pair(v, default=(None, None)):
@@ -455,6 +457,8 @@ class BoxContainer(VisibilityContainer):
         if len(self.children) > 0:
             self.children[0].pos = self._widget_rect[:2]
             self.children[0].size = self._widget_rect[2:]
+        LOG.append(('<bc> w m p s', self.children[0], chms, chps,
+                    self.children[0].size))
     def draw_inner(self, win):
         BoxWidget.draw_box(win, self.pos, self.size, self.attr_margin,
                            self.ch_margin, False)
@@ -525,13 +529,15 @@ class Viewport(SingleContainer):
     def relayout(self):
         chps, chms = self._child_prefsize(), self._child_minsize()
         if len(self.children) > 0:
-            self.children[0].pos = (0, 0)
             if self.restrict_size:
                 chs = (chms[0] if chps[0] > self.size[0] else chps[0],
                        chms[1] if chps[1] > self.size[1] else chps[1])
             else:
                 chs = chps
+            self.children[0].pos = (0, 0)
             self.children[0].size = maxpos(self.size, chs)
+            LOG.append(('<vp> w m p s', self.children[0],
+                        chms, chps, self.children[0].size))
     def draw(self, win):
         Widget.draw(self, win)
         if len(self.children) == 0:
@@ -558,9 +564,10 @@ class Viewport(SingleContainer):
                 self.children[0].invalidate(True)
         if len(self.children) > 0:
             self.children[0].draw(self._pad)
+        eps = minpos(self.size, self._pad.getmaxyx()[::-1])
         self._pad.overwrite(win, 0, 0, self.pos[1], self.pos[0],
-                            self.pos[1] + self.size[1] - 1,
-                            self.pos[0] + self.size[0] - 1)
+                            self.pos[1] + eps[1] - 1,
+                            self.pos[0] + eps[0] - 1)
     def grab_cursor(self, pos):
         if pos is not None: pos = addpos(self.pos, pos)
         return SingleContainer.grab_cursor(self, pos)
@@ -668,6 +675,24 @@ class LinearContainer(Container):
     def _unpack_groups(cls, values, lengths):
         return sum(((v,) * l for v, l in zip(values, lengths)), ())
     @classmethod
+    def _shrink(cls, r, full, gmins, gsweights):
+        while 1:
+            indices, weights, diffs = [], [], []
+            for i, w in enumerate(gsweights):
+                if w == 0: continue
+                d = gmins[i] - r[i]
+                if d >= 0: continue
+                indices.append(i)
+                weights.append(w)
+                diffs.append(d)
+            if not indices: break
+            incs = [max(i, j) for i, j in zip(diffs,
+                weight_distrib(full - sum(r), weights))]
+            for idx, inc in zip(indices, incs):
+                r[idx] += inc
+            if sum(r) == full: break
+        return r
+    @classmethod
     def _distrib_normal(cls, full, initial, mins, advances, weights,
                         sweights, mode):
         glengths, gmins, gsizes, gweights, gsweights = cls._make_groups(
@@ -682,22 +707,7 @@ class LinearContainer(Container):
             incs = weight_distrib(diff, gweights)
             r = [l + i for l, i in zip(gsizes, incs)]
         elif diff < 0:
-            r = list(gsizes)
-            while 1:
-                indices, weights, diffs = [], [], []
-                for i, w in enumerate(gsweights):
-                    if w == 0: continue
-                    d = gmins[i] - r[i]
-                    if d >= 0: continue
-                    indices.append(i)
-                    weights.append(w)
-                    diffs.append(d)
-                if not indices: break
-                incs = [max(i, j) for i, j in zip(diffs,
-                    weight_distrib(full - sum(r), weights))]
-                for idx, inc in zip(indices, incs):
-                    r[idx] += inc
-                if sum(r) == full: break
+            r = cls._shrink(list(gsizes), full, gmins, gsweights)
         else:
             r = gsizes
         return cls._unpack_groups(r, glengths)
@@ -721,6 +731,8 @@ class LinearContainer(Container):
                 ndis = linear_distrib(full - used, len(fitting))
                 for n, l in zip(fitting, ndis):
                     distr[n] = l
+            if sum(distr) > full:
+                distr = cls._shrink(distr, full, gmins, (1,) * len(gmins))
         return cls._unpack_groups(distr, glengths)
     @classmethod
     def distribute(cls, full, initial, mins, advances, weights,
@@ -766,8 +778,8 @@ class LinearContainer(Container):
     def invalidate_layout(self):
         Container.invalidate_layout(self)
         self._preboxes = None
-        self._minsize = None
         self._prefsize = None
+        self._minsize = None
         self._boxes = None
     def add(self, widget, **config):
         self._rules[widget] = config.get('rule', self.default_rule)
@@ -787,33 +799,33 @@ class LinearContainer(Container):
         del self._sweights_y[widget]
     def _make_preboxes(self):
         if self._preboxes is not None: return
-        cp, mps, mms = (0, 0), (0, 0), (0, 0)
+        cpp, cpm, mps, mms = (0, 0), (0, 0), (0, 0), (0, 0)
         amnt, tps, tms = [0, 0], (0, 0), (0, 0)
         self._preboxes = []
         for w in self.children:
             ps, ms, r = w.getprefsize(), w.getminsize(), self._rules[w]
             mps, mms = maxpos(mps, ps), maxpos(mms, ms)
-            self._preboxes.append((w, cp, tuple(ps), tuple(ms)))
-            tps = maxpos(tps, (cp[0] + ps[0], cp[1] + ps[1]))
-            tms = maxpos(tms, (cp[0] + ms[0], cp[1] + ms[1]))
+            self._preboxes.append((w, tuple(ps), tuple(ms)))
+            tps = maxpos(tps, (cpp[0] + ps[0], cpp[1] + ps[1]))
+            tms = maxpos(tms, (cpm[0] + ms[0], cpm[1] + ms[1]))
             amnt[0] += r.advances[0]
             amnt[1] += r.advances[1]
-            cp = (cp[0] + ps[0] * r.advances[0],
-                  cp[1] + ps[1] * r.advances[1])
-        tps, tms = list(tps), list(tms)
+            cpp = (cpp[0] + ps[0] * r.advances[0],
+                   cpp[1] + ps[1] * r.advances[1])
+            cpm = (cpm[0] + ms[0] * r.advances[0],
+                   cpm[1] + ms[1] * r.advances[1])
+        tps = list(tps)
         if self.mode_x in (self.MODE_EQUAL, self.MODE_EQUAL_FORCE):
             tps[0] = mps[0] * amnt[0]
-            tms[0] = mms[0] * amnt[0]
         if self.mode_y in (self.MODE_EQUAL, self.MODE_EQUAL_FORCE):
             tps[1] = mps[1] * amnt[1]
-            tms[1] = mms[1] * amnt[1]
         self._prefsize = tps
         self._minsize = tms
     def _make_boxes(self, size):
         if self._boxes is not None: return
         self._make_preboxes()
         sizes, mins, advances, weights, sweights = [], [], [], [], []
-        for w, xy, wh, ms in self._preboxes:
+        for w, wh, ms in self._preboxes:
             sizes.append(wh)
             mins.append(ms)
             advances.append(self._rules[w].advances)
@@ -828,6 +840,12 @@ class LinearContainer(Container):
                                      za[0], zw[0], zs[0], self.mode_x),
                      self.distribute(size[1], zl[1], zm[1],
                                      za[1], zw[1], zs[1], self.mode_y))
+        esizes = list(esizes)
+        if isinstance(self, HorizontalContainer):
+            LOG.append(('<hc> tm tp ts es ses',
+                        self.getminsize(), self.getprefsize(),
+                        size, esizes, (sum(i[0] for i in esizes),
+                                       sum(i[1] for i in esizes))))
         self._boxes = []
         cp = (0, 0)
         for w, s in zip(self.children, esizes):
@@ -940,10 +958,8 @@ class GridContainer(Container):
         tms = [sum(msx), sum(msy)]
         if psx and self.mode_x in lm:
             tps[0] = max(psx) * len(psx)
-            tms[0] = max(msx) * len(msx)
         if psy and self.mode_y in lm:
             tps[1] = max(psy) * len(psy)
-            tms[1] = max(msy) * len(msy)
         self._presizes = (psx, psy)
         self._minsizes = (msx, msy)
         self._prefsize = tps
@@ -986,7 +1002,10 @@ class BoxWidget(Widget):
     def draw_box(win, pos, size, attr, ch, border):
         if pos[0] < 0 or pos[1] < 0 or size[0] <= 0 or size[1] <= 0:
             return
-        sw = win.derwin(size[1], size[0], pos[1], pos[0])
+        try:
+            sw = win.derwin(size[1], size[0], pos[1], pos[0])
+        except _curses.error:
+            return
         if not attr is None:
             sw.bkgd(ch, attr)
             sw.clear()
@@ -1259,9 +1278,11 @@ def mainloop(scr):
         WidgetRoot.make(wr)
     def grow():
         stru.pref_size[0] += 1
+        stru.min_size[0] += 1
         stru.invalidate_layout()
     def shrink():
         stru.pref_size[0] -= 1
+        stru.min_size[0] -= 1
         stru.invalidate_layout()
     import sys
     make_counter = [0]
@@ -1278,13 +1299,13 @@ def mainloop(scr):
                               attr_margin=_curses.color_pair(1),
                               attr_box=_curses.color_pair(4)))
     box = obx.add(BoxContainer(attr_box=_curses.color_pair(2),
-                               border=True))
-    lo = box.add(HorizontalContainer())
+                               margin=None, border=True))
+    lo = box.add(HorizontalContainer(mode_x=LinearContainer.MODE_EQUAL))
     c1 = lo.add(VerticalContainer())
     btnt = c1.add(Button('test', text_changer))
-    rdb1 = c1.add(grp.add(RadioBox('test 1')))
-    btne = c1.add(BoxContainer(margin=(0, 0, None)), weight=1).add(
-        Button('exit', sys.exit, background=_curses.color_pair(3)))
+    rdb1 = c1.add(grp.add(RadioBox('NOP')))
+    btne = c1.add(BoxContainer(margin=(None, 0, 0)), weight=1).add(
+        Button('exit', sys.exit, attr_normal=_curses.color_pair(3)))
     vp = lo.add(Viewport(background=_curses.color_pair(2)))
     c2 = vp.add(VerticalContainer())
     btnr = c2.add(Button('----------------\nback\n----------------',
@@ -1294,16 +1315,18 @@ def mainloop(scr):
     gbox = c2.add(BoxContainer(margin=(1, 2),
                                attr_margin=_curses.color_pair(1),
                                attr_box=_curses.color_pair(2)))
-    grid = gbox.add(GridContainer(mode_y=LinearContainer.MODE_EQUAL))
-    rdb2 = grid.add(grp.add(RadioBox('test 2', callback=grow)), pos=(0, 0))
-    rdb3 = grid.add(grp.add(RadioBox('test 3', callback=shrink)), pos=(0, 1))
+    grid = gbox.add(GridContainer())
+    rdb2 = grid.add(grp.add(RadioBox('grow', callback=grow)),
+                    pos=(0, 0))
+    rdb3 = grid.add(grp.add(RadioBox('shrink', callback=shrink)),
+                    pos=(0, 1))
     twgc = grid.add(Label(background=_curses.color_pair(3),
                           align=ALIGN_CENTER), pos=(2, 0))
     grid.add(Label('[3,2]', align=ALIGN_RIGHT,
                    background=_curses.color_pair(3)),
              pos=(3, 2))
     grid.add(Label('[0,3]'), pos=(0, 3))
-    stru = c2.add(Strut(pref_size=[20, 0], min_size=[0, 0]))
+    stru = c2.add(Strut(pref_size=[110, 0], min_size=[100, 0]))
     grid.config_col(0)
     grid.config_col(1, minsize=1)
     grid.config_col(2, weight=1)
@@ -1316,8 +1339,9 @@ def main():
         _curses.wrapper(mainloop)
     finally:
         if LOG:
+            LOG.append('')
             import sys
-            sys.stderr.write('\n'.join(map(str, LOG)) + '\n')
+            sys.stderr.write('\n'.join(map(str, LOG)))
             sys.stderr.flush()
 
 if __name__ == '__main__': main()
