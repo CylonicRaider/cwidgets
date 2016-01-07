@@ -9,7 +9,7 @@ _KEY_RETURN = ord('\n')
 _KEY_TAB = ord('\t')
 _KEY_SPACE = ord(' ')
 
-LOG = []
+#LOG = []
 
 def addpos(p1, p2):
     return (p1[0] + p2[0], p1[1] + p2[1])
