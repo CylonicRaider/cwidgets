@@ -266,7 +266,7 @@ class Container(Widget):
     def relayout(self):
         for i in self.children:
             i.pos = self.pos
-            i.size = i.getprefsize()
+            i.size = minpos(self.size, i.getprefsize())
     def draw(self, win):
         if self.valid_display: return
         for i in self.children:
@@ -286,7 +286,7 @@ class Container(Widget):
         else:
             return False
     def focus(self, rev=False):
-        if len(self.children) == 0:
+        if not self.children:
             return False
         elif self._focused is not None:
             idx = self.children.index(self._focused)
@@ -346,7 +346,7 @@ class SingleContainer(Container):
     def _child_minsize(self, **kwds):
         if self._chms is not None:
             pass
-        elif len(self.children) == 0:
+        elif not self.children:
             self._chms = (0, 0)
         else:
             c, cms = self.children[0].getminsize(), self.cmaxsize
@@ -356,7 +356,7 @@ class SingleContainer(Container):
     def _child_prefsize(self):
         if self._chps is not None:
             pass
-        elif len(self.children) == 0:
+        elif not self.children:
             self._chps = (0, 0)
         else:
             c, cms = self.children[0].getprefsize(), self.cmaxsize
@@ -364,7 +364,7 @@ class SingleContainer(Container):
                           min(c[1], cms[1]) if cms[1] is not None else c[1])
         return self._chps
     def add(self, widget, **config):
-        while len(self.children) > 0:
+        while self.children:
             self.remove(self.children[0])
         return Container.add(self, widget, **config)
     def invalidate_layout(self):
@@ -466,7 +466,7 @@ class BoxContainer(VisibilityContainer):
             list(map(bool, self.border)), self.padding, chps, chms)
         self._box_rect = shiftrect(br, self.pos)
         self._widget_rect = shiftrect(wr, self.pos)
-        if len(self.children) > 0:
+        if self.children:
             self.children[0].pos = self._widget_rect[:2]
             self.children[0].size = self._widget_rect[2:]
     def draw_inner(self, win):
@@ -512,7 +512,7 @@ class AlignContainer(VisibilityContainer):
             chps = self._child_prefsize()
             self._wbox = self.calc_wbox(chps, self.size, self.scale,
                                         self.align, self.pos)
-        if len(self.children) > 0:
+        if self.children:
             self.children[0].pos = self._wbox[:2]
             self.children[0].size = self._wbox[2:]
     def invalidate_layout(self):
@@ -538,7 +538,7 @@ class Viewport(SingleContainer):
                 (ps[1] if ms[1] is None else min(ps[1], ms[1])))
     def relayout(self):
         chps, chms = self._child_prefsize(), self._child_minsize()
-        if len(self.children) > 0:
+        if self.children:
             if self.restrict_size:
                 chs = (chms[0] if chps[0] > self.size[0] else chps[0],
                        chms[1] if chps[1] > self.size[1] else chps[1])
@@ -548,7 +548,7 @@ class Viewport(SingleContainer):
             self.children[0].size = maxpos(self.size, chs)
     def draw(self, win):
         Widget.draw(self, win)
-        if len(self.children) == 0:
+        if not self.children:
             chsz = (0, 0)
         else:
             chsz = self.children[0].size
@@ -568,9 +568,9 @@ class Viewport(SingleContainer):
                 fill = self._pad.derwin(0, 0)
                 fill.bkgd(self.background_ch, self.background)
                 fill.clear()
-            if len(self.children) > 0:
+            if self.children:
                 self.children[0].invalidate(True)
-        if len(self.children) > 0:
+        if self.children:
             self.children[0].draw(self._pad)
         eps = minpos(self.size, self._pad.getmaxyx()[::-1])
         self._pad.overwrite(win, 0, 0, self.pos[1], self.pos[0],
@@ -596,6 +596,10 @@ class StackContainer(Container):
     def __init__(self, **kwds):
         Container.__init__(self, **kwds)
         self._layers = {}
+    def layout_minsize(self):
+        wh = (0, 0)
+        for i in self.children: wh = maxpos(wh, i.getminsize())
+        return wh
     def relayout(self):
         ps = self.getprefsize()
         for w in self.children:
@@ -649,6 +653,87 @@ class PlacerContainer(StackContainer):
         StackContainer.remove(self, widget)
         del self._positions[widget]
         del self._sizes[widget]
+
+class MarginContainer(Container):
+    class Position(Singleton): pass
+    POS_TOPLEFT  = Position('POS_TOPLEFT',  x=-1, y=-1, idx=0)
+    POS_TOP      = Position('POS_TOP',      x= 0, y=-1, idx=1)
+    POS_TOPRIGHT = Position('POS_TOPRIGHT', x= 1, y=-1, idx=2)
+    POS_LEFT     = Position('POS_LEFT',     x=-1, y= 0, idx=3)
+    POS_CENTER   = Position('POS_CENTER',   x= 0, y= 0, idx=4)
+    POS_RIGHT    = Position('POS_RIGHT',    x= 1, y= 0, idx=5)
+    POS_BOTLEFT  = Position('POS_BOTLEFT',  x=-1, y= 1, idx=6)
+    POS_BOTTOM   = Position('POS_BOTTOM',   x= 0, y= 1, idx=7)
+    POS_BOTRIGHT = Position('POS_BOTRIGHT', x= 1, y= 1, idx=8)
+    def __init__(self, **kwds):
+        Container.__init__(self, **kwds)
+        self.border = parse_quad(kwds.get('border', False))
+        self._slots = {}
+        self._revslots = {}
+        self._minsize = None
+        self._prefsize = None
+        self._presizes = None
+        self._boxes = None
+    def layout_minsize(self):
+        self._make_preboxes()
+        return self._minsize
+    def layout_prefsize(self):
+        self._make_preboxes()
+        return self._prefsize
+    def relayout(self):
+        self._make_boxes(self.size)
+        for w, pos, size in self._boxes:
+            w.pos = pos
+            w.size = size
+    def invalidate_layout(self):
+        Container.invalidate_layout(self)
+        self._minsize = None
+        self._prefsize = None
+        self._presizes = None
+        self._boxes = None
+    def add(self, widget, **config):
+        slot = config.get('slot', self.POS_CENTER)
+        if self._revslots[slot]:
+            self.remove(self._revslots[slot])
+        Container.add(self, widget, **config)
+        self._slots[widget] = slot
+        self._revslots[slot] = widget
+    def remove(self, widget):
+        Container.remove(self, widget)
+        del self._revslots[self._slots[widget]]
+        del self._slots[widget]
+    def _make_preboxes(self):
+        if self._presizes is not None: return
+        if not self.children:
+            self._minsize = (0, 0)
+            self._prefsize = (0, 0)
+            self._preboxes = {}
+            return
+        elif len(self.children) == 1:
+            chms = self.children[0].getminsize()
+            chps = self.children[0].getprefsize()
+            self._minsize = chms
+            self._prefsize = chps
+            self._preboxes = {self.children[0]: chps}
+            return
+        self._presizes = [None] * 9
+        # Shamelessly abusing negative indicing >:)
+        mws, mhs = [0, 0, 0], [0, 0, 0]
+        pws, phs = [0, 0, 0], [0, 0, 0]
+        for w, slot in self._slots.items():
+            ms, ps = w.getminsize(), w.getprefsize()
+            mws[slot.x] = max(mws[slot.x], ms[0])
+            mhs[slot.y] = max(mhs[slot.y], ms[1])
+            pws[slot.x] = max(pws[slot.x], ps[0])
+            phs[slot.y] = max(phs[slot.y], ps[1])
+            self._presizes[slot.idx] = (ms[0], ms[1], ps[0], ps[1])
+        self._minsize = (sum(mws), sum(mhs))
+        self._prefsize = (sum(pws), sum(phs))
+    def _make_boxes(self, size):
+        if self._boxes is not None: return
+        self._make_preboxes()
+        self._boxes = []
+        pass #!!!
 
 class LinearContainer(Container):
     class Rule(Singleton): pass
@@ -1238,7 +1323,7 @@ class BaseStrut(Widget):
     def __init__(self, dir=None, **kwds):
         Widget.__init__(self, **kwds)
         self.dir = dir
-        self.align = kwds.get('align', (ALIGN_CENTER, ALIGN_CENTER))
+        self.align = parse_pair(kwds.get('align', ALIGN_CENTER))
 
 class Strut(BaseStrut):
     def __init__(self, dir=None, **kwds):
@@ -1355,7 +1440,7 @@ def mainloop(scr):
     _curses.init_pair(4, _curses.COLOR_GREEN, _curses.COLOR_BLACK)
     rv = wr.add(Viewport())
     obx = rv.add(BoxContainer(margin=None, border=(0, 0, 0, 1),
-                              padding=(1, 2, 1, 2),
+                              padding=(1, 2),
                               attr_margin=_curses.color_pair(1),
                               attr_box=_curses.color_pair(4)))
     box = obx.add(BoxContainer(attr_box=_curses.color_pair(2),
