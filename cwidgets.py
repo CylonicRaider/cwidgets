@@ -82,6 +82,20 @@ def parse_quad(v, default=(None, None, None, None)):
             default[2] if v[2] is None else v[2],
             default[3] if v[3] is None else v[3])
 
+def inflate(size, margin, mul=1):
+    if len(size) == 2:
+        return (margin[3] * mul + size[0] + margin[1] * mul,
+                margin[0] * mul + size[1] + margin[2] * mul)
+    elif len(size) == 4:
+        return (size[0] - margin[3] * mul,
+                size[1] - margin[0] * mul,
+                margin[3] * mul + size[2] + margin[1] * mul,
+                margin[0] * mul + size[3] + margin[2] * mul)
+    else:
+        raise TypeError('Must be size or rect')
+def deflate(rect, margin, mul=1):
+    return inflate(rect, margin, -mul)
+
 class Singleton:
     def __init__(self, __name__, **__dict__):
         self.__dict__ = __dict__
@@ -442,12 +456,10 @@ class BoxContainer(VisibilityContainer):
                 m(3) + bool(b(3)) + p(3))
     def layout_minsize(self):
         chms, ins = self._child_minsize(), self.calc_insets()
-        return (ins[3] + chms[0] + ins[1],
-                ins[0] + chms[1] + ins[2])
+        return inflate(chms, ins)
     def layout_prefsize(self):
         chps, ins = self._child_prefsize(), self.calc_insets()
-        return (ins[3] + chps[0] + ins[1],
-                ins[0] + chps[1] + ins[2])
+        return inflate(chps, ins)
     def relayout(self):
         chps, chms = self._child_prefsize(), self._child_minsize()
         br, wr = self.calc_pads(self.size, self.margin,
@@ -1205,6 +1217,63 @@ class RadioBox(ToggleButton):
         ToggleButton.on_activate(self)
         self.state = True
 
+class BaseStrut(Widget):
+    class Direction(Singleton): pass
+    DIR_VERTICAL = Direction('DIR_VERTICAL',
+        vert=True , lo=False, hi=False)
+    DIR_UP = Direction('DIR_UP',
+        vert=True , lo=True , hi=False)
+    DIR_DOWN = Direction('DIR_DOWN',
+        vert=True , lo=False, hi=True )
+    DIR_UPDOWN = Direction('DIR_UPDOWN',
+        vert=True, lo=True , hi=True )
+    DIR_HORIZONTAL = Direction('DIR_HORIZONTAL',
+        vert=False, lo=False, hi=False)
+    DIR_LEFT = Direction('DIR_LEFT',
+        vert=False, lo=True , hi=False)
+    DIR_RIGHT = Direction('DIR_RIGHT',
+        vert=False, lo=False, hi=True )
+    DIR_LEFTRIGHT = Direction('DIR_LEFTRIGHT',
+        vert=False, lo=True , hi=True )
+    def __init__(self, dir=None, **kwds):
+        Widget.__init__(self, **kwds)
+        self.dir = dir
+        self.align = kwds.get('align', (ALIGN_CENTER, ALIGN_CENTER))
+
+class Strut(BaseStrut):
+    def __init__(self, dir=None, **kwds):
+        BaseStrut.__init__(self, dir, **kwds)
+        self.attr = kwds.get('attr', 0)
+        self.margin = parse_quad(kwds.get('margin', 0))
+    def getprefsize(self):
+        ret = (self.dir.lo + self.dir.hi, 1)
+        if self.dir.vert: ret = ret[::-1]
+        ret = inflate(ret, self.margin)
+        return maxpos(ret, BaseStrut.getprefsize(self))
+    def draw(self, win):
+        # derwin()s to avoid weird character drawing glitches
+        ir = deflate(
+            (self.pos[0], self.pos[1], self.size[0], self.size[1]),
+            self.margin)
+        if self.dir.vert:
+            x = ir[0] + int(ir[2] * self.align[0])
+            sw = win.derwin(ir[3], 1, ir[1], x)
+            sw.bkgd('\0', self.attr)
+            sw.vline(0, 0, _curses.ACS_VLINE, ir[3])
+            if self.dir.lo:
+                sw.addch(0, 0, _curses.ACS_TTEE)
+            if self.dir.hi:
+                sw.insch(ir[3] - 1, 0, _curses.ACS_BTEE)
+        else:
+            y = ir[1] + int(ir[3] * self.align[1])
+            sw = win.derwin(1, ir[2], y, ir[0])
+            sw.bkgd('\0', self.attr)
+            sw.hline(0, 0, _curses.ACS_HLINE, ir[2])
+            if self.dir.lo:
+                sw.addch(0, 0, _curses.ACS_LTEE)
+            if self.dir.hi:
+                sw.insch(0, ir[2] - 1, _curses.ACS_RTEE)
+
 class BaseRadioGroup(object):
     def __init__(self):
         self.widgets = []
@@ -1244,7 +1313,7 @@ class RadioGroup(BaseRadioGroup):
         self._set_active(widget)
 
 def mainloop(scr):
-    class Strut(Widget):
+    class DebugStrut(Widget):
         def __init__(self, **kwds):
             Widget.__init__(self, **kwds)
             self.min_size = kwds.get('min_size', None)
@@ -1291,33 +1360,37 @@ def mainloop(scr):
                               attr_box=_curses.color_pair(4)))
     box = obx.add(BoxContainer(attr_box=_curses.color_pair(2),
                                margin=None, border=True))
-    lo = box.add(HorizontalContainer(mode_x=LinearContainer.MODE_EQUAL))
+    lo = box.add(HorizontalContainer())
     c1 = lo.add(VerticalContainer())
     btnt = c1.add(Button('test', text_changer))
     rdb1 = c1.add(grp.add(RadioBox('NOP')))
     btne = c1.add(BoxContainer(margin=(None, 0, 0)), weight=1).add(
         Button('exit', sys.exit, attr_normal=_curses.color_pair(3)))
+    s1 = lo.add(Strut(Strut.DIR_VERTICAL, attr=_curses.color_pair(2),
+                      margin=(0, 1)))
     vp = lo.add(Viewport(background=_curses.color_pair(2)))
     c2 = vp.add(VerticalContainer())
     btnr = c2.add(Button('----------------\nback\n----------------',
                          text_back_changer, align=ALIGN_CENTER,
                          background=_curses.color_pair(3), border=0),
                   weight=1)
+    s2 = c2.add(Strut(Strut.DIR_HORIZONTAL, attr=_curses.color_pair(2)))
     gbox = c2.add(BoxContainer(margin=(1, 2),
                                attr_margin=_curses.color_pair(1),
                                attr_box=_curses.color_pair(2)))
-    grid = gbox.add(GridContainer())
+    grid = gbox.add(GridContainer(mode_x=LinearContainer.MODE_EQUAL))
     rdb2 = grid.add(grp.add(RadioBox('grow', callback=grow)),
                     pos=(0, 0))
     rdb3 = grid.add(grp.add(RadioBox('shrink', callback=shrink)),
                     pos=(0, 1))
     twgc = grid.add(Label(background=_curses.color_pair(3),
                           align=ALIGN_CENTER), pos=(2, 0))
-    grid.add(Label('[3,2]', align=ALIGN_RIGHT,
-                   background=_curses.color_pair(3)),
-             pos=(3, 2))
-    grid.add(Label('[0,3]'), pos=(0, 3))
-    stru = c2.add(Strut(pref_size=[20, 0], min_size=[10, 0]))
+    lbl1 = grid.add(Label('[3,2]', align=ALIGN_RIGHT,
+                          background=_curses.color_pair(3)),
+                    pos=(3, 2))
+    lbl2 = grid.add(Label('[0,3]'), pos=(0, 3))
+    stru = grid.add(DebugStrut(pref_size=[20, 0], min_size=[10, 0]),
+                    pos=(1, 3))
     grid.config_col(0)
     grid.config_col(1, minsize=1)
     grid.config_col(2, weight=1)
