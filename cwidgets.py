@@ -386,7 +386,8 @@ class VisibilityContainer(SingleContainer):
         else:
             return SingleContainer.getprefsize(self)
     def draw(self, win):
-        if self.visibility != self.VIS_VISIBLE: return
+        if self.visibility != self.VIS_VISIBLE or self.valid_display:
+            return
         self.draw_inner(win)
     def draw_inner(self, win):
         SingleContainer.draw(self, win)
@@ -547,20 +548,22 @@ class Viewport(SingleContainer):
             self.children[0].pos = (0, 0)
             self.children[0].size = maxpos(self.size, chs)
     def draw(self, win):
+        if self.valid_display: return
         Widget.draw(self, win)
         if not self.children:
             chsz = (0, 0)
         else:
             chsz = self.children[0].size
-        pad_changed = True
         if self._pad is None:
             self._pad = _curses.newpad(chsz[1], chsz[0])
             if self.default_attr is not None:
                 self._pad.bkgd(self.default_ch, self.default_attr)
+            pad_changed = True
         else:
             padsz = self._pad.getmaxyx()
             if padsz[1] != chsz[0] or padsz[0] != chsz[1]:
                 self._pad.resize(chsz[1], chsz[0])
+                pad_changed = True
             else:
                 pad_changed = False
         if pad_changed:
@@ -580,14 +583,10 @@ class Viewport(SingleContainer):
         if pos is not None: pos = addpos(self.pos, pos)
         return SingleContainer.grab_cursor(self, pos)
     def invalidate(self, rec=False, child=None):
-        if rec:
-            # Required for some reason... :S
-            SingleContainer.invalidate(self, True, child)
-        else:
-            # Child is rendered to offscreen pad, cannot be invalidated by
-            # anything that happens to me (invalidated in draw() if
-            # necessary).
-            Widget.invalidate(self, rec, child)
+        # Child is rendered to offscreen pad, and cannot be invalidated
+        # by anything that happens to me (invalidated in draw() if
+        # necessary).
+        Widget.invalidate(self, rec, child)
     def invalidate_layout(self):
         SingleContainer.invalidate_layout(self)
         self._pad = None
@@ -712,6 +711,7 @@ class MarginContainer(Container):
         self._presizes = None
         self._boxes = None
     def draw(self, win):
+        if self.valid_display: return
         BoxWidget.draw_box(win, self.pos, self.size, self.background,
                            self.background_ch, self.border)
         Container.draw(self, win)
@@ -1170,6 +1170,7 @@ class BoxWidget(Widget):
         self.background_ch = kwds.get('background_ch', '\0')
         self.border = kwds.get('border', False)
     def draw(self, win):
+        if self.valid_display: return
         Widget.draw(self, win)
         self.draw_box(win, self.pos, self.size, self.background,
             self.background_ch, self.border)
@@ -1199,6 +1200,7 @@ class TextWidget(BoxWidget):
                               for l in self._lines)
         self._vindent = int((eh - len(self._lines)) * self.align[0])
     def draw(self, win):
+        if self.valid_display: return
         BoxWidget.draw(self, win)
         i = (1 if self.border else 0)
         pref = self._text_prefix()
@@ -1371,6 +1373,7 @@ class Strut(BaseStrut):
         ret = inflate(ret, self.margin)
         return maxpos(ret, BaseStrut.getprefsize(self))
     def draw(self, win):
+        if self.valid_display: return
         # derwin()s to avoid weird character drawing glitches
         ir = deflate(
             (self.pos[0], self.pos[1], self.size[0], self.size[1]),
