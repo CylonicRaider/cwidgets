@@ -656,18 +656,38 @@ class PlacerContainer(StackContainer):
 
 class MarginContainer(Container):
     class Position(Singleton): pass
-    POS_TOPLEFT  = Position('POS_TOPLEFT',  x=-1, y=-1, idx=0)
-    POS_TOP      = Position('POS_TOP',      x= 0, y=-1, idx=1)
-    POS_TOPRIGHT = Position('POS_TOPRIGHT', x= 1, y=-1, idx=2)
-    POS_LEFT     = Position('POS_LEFT',     x=-1, y= 0, idx=3)
-    POS_CENTER   = Position('POS_CENTER',   x= 0, y= 0, idx=4)
-    POS_RIGHT    = Position('POS_RIGHT',    x= 1, y= 0, idx=5)
-    POS_BOTLEFT  = Position('POS_BOTLEFT',  x=-1, y= 1, idx=6)
-    POS_BOTTOM   = Position('POS_BOTTOM',   x= 0, y= 1, idx=7)
-    POS_BOTRIGHT = Position('POS_BOTRIGHT', x= 1, y= 1, idx=8)
+    POS_TOPLEFT  = Position('POS_TOPLEFT',  x=0, y=0)
+    POS_TOP      = Position('POS_TOP',      x=1, y=0)
+    POS_TOPRIGHT = Position('POS_TOPRIGHT', x=2, y=0)
+    POS_LEFT     = Position('POS_LEFT',     x=0, y=1)
+    POS_CENTER   = Position('POS_CENTER',   x=1, y=1)
+    POS_RIGHT    = Position('POS_RIGHT',    x=2, y=1)
+    POS_BOTLEFT  = Position('POS_BOTLEFT',  x=0, y=2)
+    POS_BOTTOM   = Position('POS_BOTTOM',   x=1, y=2)
+    POS_BOTRIGHT = Position('POS_BOTRIGHT', x=2, y=2)
+    @classmethod
+    def calc_sizes(cls, full, minimum, preferred):
+        sm, sp = sum(minimum), sum(preferred)
+        diff = full - sp
+        if diff >= 0:
+            return (preferred[0], full - preferred[0] - preferred[2],
+                    preferred[2])
+        if sm == sp:
+            weights = (1, 1, 1)
+        else:
+            weights = (preferred[0] - minimum[0],
+                       preferred[1] - minimum[1],
+                       preferred[2] - minimum[2])
+        incs = weight_distrib(diff, weights)
+        return (preferred[0] + incs[0],
+                preferred[1] + incs[1],
+                preferred[2] + incs[2])
     def __init__(self, **kwds):
         Container.__init__(self, **kwds)
         self.border = parse_quad(kwds.get('border', False))
+        self.insets = parse_quad(kwds.get('insets', 0))
+        self.background = kwds.get('background', None)
+        self.background_ch = kwds.get('background_ch', '\0')
         self._slots = {}
         self._revslots = {}
         self._minsize = None
@@ -683,7 +703,7 @@ class MarginContainer(Container):
     def relayout(self):
         self._make_boxes(self.size)
         for w, pos, size in self._boxes:
-            w.pos = pos
+            w.pos = addpos(self.pos, pos)
             w.size = size
     def invalidate_layout(self):
         Container.invalidate_layout(self)
@@ -691,13 +711,20 @@ class MarginContainer(Container):
         self._prefsize = None
         self._presizes = None
         self._boxes = None
+    def draw(self, win):
+        BoxWidget.draw_box(win, self.pos, self.size, self.background,
+                           self.background_ch, self.border)
+        Container.draw(self, win)
     def add(self, widget, **config):
         slot = config.get('slot', self.POS_CENTER)
-        if self._revslots[slot]:
+        try:
             self.remove(self._revslots[slot])
-        Container.add(self, widget, **config)
+        except KeyError:
+            pass
+        ret = Container.add(self, widget, **config)
         self._slots[widget] = slot
         self._revslots[slot] = widget
+        return ret
     def remove(self, widget):
         Container.remove(self, widget)
         del self._revslots[self._slots[widget]]
@@ -705,19 +732,10 @@ class MarginContainer(Container):
     def _make_preboxes(self):
         if self._presizes is not None: return
         if not self.children:
-            self._minsize = (0, 0)
-            self._prefsize = (0, 0)
-            self._preboxes = {}
+            self._minsize = inflate((0, 0), self.insets)
+            self._prefsize = inflate((0, 0), self.insets)
+            self._presizes = ((0, 0, 0),) * 4
             return
-        elif len(self.children) == 1:
-            chms = self.children[0].getminsize()
-            chps = self.children[0].getprefsize()
-            self._minsize = chms
-            self._prefsize = chps
-            self._preboxes = {self.children[0]: chps}
-            return
-        self._presizes = [None] * 9
-        # Shamelessly abusing negative indicing >:)
         mws, mhs = [0, 0, 0], [0, 0, 0]
         pws, phs = [0, 0, 0], [0, 0, 0]
         for w, slot in self._slots.items():
@@ -726,14 +744,31 @@ class MarginContainer(Container):
             mhs[slot.y] = max(mhs[slot.y], ms[1])
             pws[slot.x] = max(pws[slot.x], ps[0])
             phs[slot.y] = max(phs[slot.y], ps[1])
-            self._presizes[slot.idx] = (ms[0], ms[1], ps[0], ps[1])
-        self._minsize = (sum(mws), sum(mhs))
-        self._prefsize = (sum(pws), sum(phs))
+        if self.border[0] and not self.insets[0]:
+            mhs[0], phs[0] = max(mhs[0], 1), max(phs[0], 1)
+        if self.border[1] and not self.insets[1]:
+            mws[2], pws[2] = max(mws[2], 1), max(pws[2], 1)
+        if self.border[2] and not self.insets[2]:
+            mhs[2], phs[2] = max(mhs[2], 1), max(phs[2], 1)
+        if self.border[3] and not self.insets[3]:
+            mws[0], pws[0] = max(mws[0], 1), max(pws[0], 1)
+        self._minsize = inflate((sum(mws), sum(mhs)), self.insets)
+        self._prefsize = inflate((sum(pws), sum(phs)), self.insets)
+        self._presizes = (mws, mhs, pws, phs)
     def _make_boxes(self, size):
         if self._boxes is not None: return
         self._make_preboxes()
+        mws, mhs, pws, phs = self._presizes
+        bx, by, bw, bh = deflate((0, 0, size[0], size[1]), self.insets)
+        ws = self.calc_sizes(bw, mws, pws)
+        hs = self.calc_sizes(bh, mhs, phs)
+        xs = (bx, bx + ws[0], bx + ws[0] + ws[1])
+        ys = (by, by + hs[0], by + hs[0] + hs[1])
         self._boxes = []
-        pass #!!!
+        for w, slot in self._slots.items():
+            self._boxes.append((w,
+                (xs[slot.x], ys[slot.y]),
+                (ws[slot.x], hs[slot.y])))
 
 class LinearContainer(Container):
     class Rule(Singleton): pass
@@ -1443,14 +1478,22 @@ def mainloop(scr):
                               padding=(1, 2),
                               attr_margin=_curses.color_pair(1),
                               attr_box=_curses.color_pair(4)))
-    box = obx.add(BoxContainer(attr_box=_curses.color_pair(2),
-                               margin=None, border=True))
+    box = obx.add(MarginContainer(border=True,
+        background=_curses.color_pair(2)))
     lo = box.add(HorizontalContainer())
     c1 = lo.add(VerticalContainer())
     btnt = c1.add(Button('test', text_changer))
     rdb1 = c1.add(grp.add(RadioBox('NOP')))
-    btne = c1.add(BoxContainer(margin=(None, 0, 0)), weight=1).add(
-        Button('exit', sys.exit, attr_normal=_curses.color_pair(3)))
+    mct1 = c1.add(MarginContainer(), weight=1)
+    mct1.add(Widget(minsize=(0, 1)), slot=MarginContainer.POS_TOP)
+    mct1.add(DebugStrut(pref_size=(5, 0), min_size=(0, 0)),
+             slot=MarginContainer.POS_LEFT)
+    mct1.add(BoxWidget(background=_curses.color_pair(1), minsize=(5, 1)))
+    mct1.add(DebugStrut(pref_size=(5, 0), min_size=(0, 0)),
+             slot=MarginContainer.POS_RIGHT)
+    mct1.add(Widget(minsize=(0, 1)), slot=MarginContainer.POS_BOTTOM)
+    btne = c1.add(Button('exit', sys.exit,
+                         attr_normal=_curses.color_pair(3)))
     s1 = lo.add(Strut(Strut.DIR_VERTICAL, attr=_curses.color_pair(2),
                       margin=(0, 1)))
     vp = lo.add(Viewport(background=_curses.color_pair(2)))
@@ -1485,7 +1528,7 @@ def mainloop(scr):
 
 def main():
     #try:
-    _curses.wrapper(mainloop)
+        _curses.wrapper(mainloop)
     #finally:
     #    if LOG:
     #        LOG.append('')
