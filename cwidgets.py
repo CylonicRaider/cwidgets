@@ -13,12 +13,16 @@ _KEY_SPACE = ord(' ')
 
 def addpos(p1, p2):
     return (p1[0] + p2[0], p1[1] + p2[1])
+def subpos(p1, p2):
+    return (p1[0] - p2[0], p1[1] - p2[1])
 def minpos(p1, p2):
     return (min(p1[0], p2[0]), min(p1[1], p2[1]))
 def maxpos(p1, p2):
     return (max(p1[0], p2[0]), max(p1[1], p2[1]))
 def shiftrect(r, p):
     return (r[0] + p[0], r[1] + p[1], r[2], r[3])
+def unshiftrect(r, p):
+    return (r[0] - p[0], r[1] - p[1], r[2], r[3])
 
 def linear_distrib(full, amnt):
     if full == 0:
@@ -146,7 +150,7 @@ class WidgetRoot(object):
                 _curses.setsyx(self._cursorpos[1], self._cursorpos[0])
                 _curses.doupdate()
         self.valid_display = True
-    def grab_cursor(self, pos):
+    def grab_input(self, rect, pos=None, child=None, full=False):
         self._cursorpos = pos
     def event(self, event):
         if event[0] == _KEY_TAB:
@@ -155,6 +159,7 @@ class WidgetRoot(object):
             return self.focus(True)
         if not self.widget is None:
             return self.widget.event(event)
+        return False
     def focus(self, rev=False):
         if self.widget is None:
             return False
@@ -204,21 +209,51 @@ class Widget(object):
         self.parent = None
         self.pos = None
         self.size = None
-        self.can_shrink = False
         self.valid_display = False
         self.valid_layout = False
+        self.grabbing = None
+        self.grabbing_full = False
+        self.cursor_pos = None
+    @property
+    def rect(self):
+        return (self.pos[0], self.pos[1], self.size[0], self.size[1])
     def getminsize(self):
         return self.getprefsize()
     def getprefsize(self):
         return self.minsize
     def make(self):
         self.valid_layout = True
+        if self.grabbing:
+            gr = list(self.grabbing)
+            if gr[2] > self.size[0]: gr[2] = self.size[0]
+            if gr[3] > self.size[1]: gr[3] = self.size[1]
+            rect = shiftrect(gr, self.pos)
+            if self.cursor_pos is None:
+                pos = None
+            else:
+                pos = addpos(self.cursor_pos, self.pos)
+            self.grab_input(rect, pos, None, self.grabbing_full)
         self.invalidate()
     def draw(self, win):
         self.valid_display = True
-    def grab_cursor(self, pos):
-        return self.parent.grab_cursor(pos)
+    def grab_input(self, rect, pos=None, child=None, full=False):
+        if rect is None or child is not None:
+            self.grabbing = None
+            self.grabbing_full = False
+            self.cursor_pos = None
+        else:
+            self.grabbing = unshiftrect(rect, self.pos)
+            self.grabbing_full = full
+            if pos is None:
+                self.cursor_pos = None
+            else:
+                self.cursor_pos = subpos(pos, self.pos)
+        self.parent.grab_input(rect, pos, self, full)
     def event(self, event):
+        if event[0] == FocusEvent and not event[1]:
+            self.grabbing = None
+            self.grabbing_full = False
+            self.cursor_pos = None
         return False
     def focus(self, rev=False):
         return False
@@ -273,18 +308,19 @@ class Container(Widget):
             i.draw(win)
         Widget.draw(self, win)
     def event(self, event):
+        ret = Widget.event(self, event)
         if event[0] == FocusEvent:
             if not event[1]:
                 self._refocus(None)
             return True
         elif event[0] == _KEY_TAB:
-            return self.focus()
+            return (self.focus() or ret)
         elif event[0] == _curses.KEY_BTAB:
-            return self.focus(True)
+            return (self.focus(True) or ret)
         elif self._focused is not None:
-            return self._focused.event(event)
+            return (self._focused.event(event) or ret)
         else:
-            return False
+            return ret
     def focus(self, rev=False):
         if not self.children:
             return False
@@ -296,8 +332,9 @@ class Container(Widget):
             idx = 0
         incr = (-1 if rev else 1)
         while 1:
-            if self.children[idx].focus(rev):
-                self._refocus(self.children[idx])
+            ch = self.children[idx]
+            if ch.focus(rev):
+                self._refocus(ch)
                 return True
             idx += incr
             if idx in (-1, len(self.children)): break
@@ -521,6 +558,15 @@ class AlignContainer(VisibilityContainer):
         self._wbox = None
 
 class Viewport(SingleContainer):
+    @classmethod
+    def calc_shift(cls, offset, size, rect):
+        ret = list(offset)
+        br = subpos(addpos(rect[:2], rect[2:]), size)
+        if ret[0] < br[0]: ret[0] = br[0]
+        if ret[1] < br[1]: ret[1] = br[1]
+        if ret[0] > rect[0]: ret[0] = rect[0]
+        if ret[1] > rect[1]: ret[1] = rect[1]
+        return ret
     def __init__(self, **kwds):
         SingleContainer.__init__(self, **kwds)
         self.restrict_size = kwds.get('restrict_size', True)
@@ -528,6 +574,8 @@ class Viewport(SingleContainer):
         self.default_ch = kwds.get('default_ch', '\0')
         self.background = kwds.get('background', None)
         self.background_ch = kwds.get('background_ch', '\0')
+        self.scrollpos = [0, 0]
+        self.maxscrollpos = (0, 0)
         self._pad = None
     def getminsize(self):
         ps, ms = SingleContainer.getminsize(self), self.cmaxsize
@@ -541,8 +589,7 @@ class Viewport(SingleContainer):
         chps, chms = self._child_prefsize(), self._child_minsize()
         if self.children:
             if self.restrict_size:
-                chs = (chms[0] if chps[0] > self.size[0] else chps[0],
-                       chms[1] if chps[1] > self.size[1] else chps[1])
+                chs = maxpos(minpos(self.size, chps), chms)
             else:
                 chs = chps
             self.children[0].pos = (0, 0)
@@ -551,9 +598,9 @@ class Viewport(SingleContainer):
         if self.valid_display: return
         Widget.draw(self, win)
         if not self.children:
-            chsz = (0, 0)
+            chsz = self.size
         else:
-            chsz = self.children[0].size
+            chsz = maxpos(self.children[0].size, self.size)
         if self._pad is None:
             self._pad = _curses.newpad(chsz[1], chsz[0])
             if self.default_attr is not None:
@@ -567,6 +614,8 @@ class Viewport(SingleContainer):
             else:
                 pad_changed = False
         if pad_changed:
+            self.maxscrollpos = subpos(self._pad.getmaxyx()[::-1],
+                                       self.size)
             if self.background is not None:
                 fill = self._pad.derwin(0, 0)
                 fill.bkgd(self.background_ch, self.background)
@@ -575,13 +624,23 @@ class Viewport(SingleContainer):
                 self.children[0].invalidate(True)
         if self.children:
             self.children[0].draw(self._pad)
-        eps = minpos(self.size, self._pad.getmaxyx()[::-1])
-        self._pad.overwrite(win, 0, 0, self.pos[1], self.pos[0],
-                            self.pos[1] + eps[1] - 1,
-                            self.pos[0] + eps[0] - 1)
-    def grab_cursor(self, pos):
-        if pos is not None: pos = addpos(self.pos, pos)
-        return SingleContainer.grab_cursor(self, pos)
+        sp = minpos(self.scrollpos, self.maxscrollpos)
+        self.scrollpos[:] = sp
+        self._pad.overwrite(win, sp[1], sp[0], self.pos[1], self.pos[0],
+                            self.pos[1] + self.size[1] - 1,
+                            self.pos[0] + self.size[0] - 1)
+    def grab_input(self, rect, pos=None, child=None, full=False):
+        if rect is not None:
+            new_offset = self.calc_shift(self.scrollpos, self.size, rect)
+            if new_offset != self.scrollpos:
+                self.invalidate()
+            self.scrollpos[:] = new_offset
+            effpos = addpos(self.pos, new_offset)
+            rect = shiftrect(rect, effpos)
+        else:
+            effpos = addpos(self.pos, self.scrollpos)
+        if pos is not None: pos = addpos(effpos, pos)
+        SingleContainer.grab_input(self, rect, pos, child, full)
     def invalidate(self, rec=False, child=None):
         # Child is rendered to offscreen pad, and cannot be invalidated
         # by anything that happens to me (invalidated in draw() if
@@ -1261,10 +1320,13 @@ class Button(TextWidget):
         self.attr = self.attr_normal
         self._raw_text = None
     def event(self, event):
+        ret = TextWidget.event(self, event)
         if event[0] in (_KEY_RETURN, _KEY_SPACE):
             self.on_activate()
+            return True
         elif event[0] == FocusEvent:
             self._set_focused(event[1])
+        return ret
     def focus(self, rev=False):
         return (not self.focused)
     def _text_prefix(self):
@@ -1279,9 +1341,7 @@ class Button(TextWidget):
     def on_focuschange(self):
         self.attr = (self.attr_active if self.focused else self.attr_normal)
         if self.focused:
-            self.grab_cursor(self.pos)
-        else:
-            self.grab_cursor(None)
+            self.grab_input(self.rect, self.pos)
     def on_activate(self):
         if self.callback is not None:
             self.callback()
@@ -1460,12 +1520,12 @@ def mainloop(scr):
         twgc.text = str(make_counter[0])
         WidgetRoot.make(wr)
     def grow():
-        stru.pref_size[0] += 1
-        stru.min_size[0] += 1
+        stru.pref_size[0] += 10
+        stru.min_size[0] += 10
         stru.invalidate_layout()
     def shrink():
-        stru.pref_size[0] -= 1
-        stru.min_size[0] -= 1
+        stru.pref_size[0] -= 10
+        stru.min_size[0] -= 10
         stru.invalidate_layout()
     import sys
     make_counter = [0]
@@ -1513,7 +1573,7 @@ def mainloop(scr):
     rdb2 = grid.add(grp.add(RadioBox('grow', callback=grow)),
                     pos=(0, 0))
     rdb3 = grid.add(grp.add(RadioBox('shrink', callback=shrink)),
-                    pos=(0, 1))
+                    pos=(3, 1))
     twgc = grid.add(Label(background=_curses.color_pair(3),
                           align=ALIGN_CENTER), pos=(2, 0))
     lbl1 = grid.add(Label('[3,2]', align=ALIGN_RIGHT,
