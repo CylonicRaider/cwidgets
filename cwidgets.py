@@ -1520,12 +1520,12 @@ def mainloop(scr):
         twgc.text = str(make_counter[0])
         WidgetRoot.make(wr)
     def grow():
-        stru.pref_size[0] += 10
-        stru.min_size[0] += 10
+        stru.pref_size[0] += 1
+        stru.min_size[0] += 1
         stru.invalidate_layout()
     def shrink():
-        stru.pref_size[0] -= 10
-        stru.min_size[0] -= 10
+        stru.pref_size[0] -= 1
+        stru.min_size[0] -= 1
         stru.invalidate_layout()
     import sys
     make_counter = [0]
