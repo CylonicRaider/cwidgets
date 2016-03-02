@@ -576,6 +576,7 @@ class Viewport(SingleContainer):
         self.background_ch = kwds.get('background_ch', '\0')
         self.scrollpos = [0, 0]
         self.maxscrollpos = (0, 0)
+        self.padsize = (0, 0)
         self._pad = None
     def getminsize(self):
         ps, ms = SingleContainer.getminsize(self), self.cmaxsize
@@ -594,13 +595,16 @@ class Viewport(SingleContainer):
                 chs = chps
             self.children[0].pos = (0, 0)
             self.children[0].size = maxpos(self.size, chs)
+            self.padsize = maxpos(self.children[0].size, self.size)
+            self.maxscrollpos = subpos(self.padsize, self.size)
+        else:
+            self.padsize = self.size
+            self.maxscrollpos = (0, 0)
+        self.scrollpos[:] = minpos(self.scrollpos, self.maxscrollpos)
     def draw(self, win):
         if self.valid_display: return
         Widget.draw(self, win)
-        if not self.children:
-            chsz = self.size
-        else:
-            chsz = maxpos(self.children[0].size, self.size)
+        chsz = self.padsize
         if self._pad is None:
             self._pad = _curses.newpad(chsz[1], chsz[0])
             if self.default_attr is not None:
@@ -614,8 +618,6 @@ class Viewport(SingleContainer):
             else:
                 pad_changed = False
         if pad_changed:
-            self.maxscrollpos = subpos(self._pad.getmaxyx()[::-1],
-                                       self.size)
             if self.background is not None:
                 fill = self._pad.derwin(0, 0)
                 fill.bkgd(self.background_ch, self.background)
@@ -625,7 +627,6 @@ class Viewport(SingleContainer):
         if self.children:
             self.children[0].draw(self._pad)
         sp = self.scrollpos
-        sp[:] = minpos(sp, self.maxscrollpos)
         self._pad.overwrite(win, sp[1], sp[0], self.pos[1], self.pos[0],
                             self.pos[1] + self.size[1] - 1,
                             self.pos[0] + self.size[0] - 1)
@@ -1547,7 +1548,7 @@ def mainloop(scr):
     c1 = lo.add(VerticalContainer())
     btnt = c1.add(Button('test', text_changer))
     rdb1 = c1.add(grp.add(RadioBox('NOP')))
-    mct1 = c1.add(MarginContainer(), weight=1)
+    mct1 = c1.add(MarginContainer(insets=(1, 0)), weight=1)
     mct1.add(Widget(minsize=(0, 1)), slot=MarginContainer.POS_TOP)
     mct1.add(DebugStrut(pref_size=(5, 0), min_size=(0, 0)),
              slot=MarginContainer.POS_LEFT)
