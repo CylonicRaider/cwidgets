@@ -1596,9 +1596,11 @@ class Scrollbar(BaseStrut):
     def _update_grab(self):
         if self.focused:
             if self._handle:
-                npos = list(self.pos)
-                npos[1 if self.dir.vert else 0] += 1 + self._handle[0]
-                self.grab_input(self.rect, tuple(npos))
+                idx = (1 if self.dir.vert else 0)
+                npos, cpos = list(self.pos), list(self.pos)
+                npos[idx] += 1 + self._handle[0]
+                cpos[idx] += 1 + self._handle[2]
+                self.grab_input(self.rect, tuple(cpos))
             else:
                 self.grab_input(self.rect, self.pos)
     def on_focuschange(self):
@@ -1634,7 +1636,8 @@ class Scrollbar(BaseStrut):
         else:
             hlen = max(size * ssize // isize, 1)
             hrem = ssize - hlen
-            self._handle = (offs * hrem // maxoffs, hlen)
+            self._handle = (offs * hrem // maxoffs, hlen,
+                            offs * (ssize - 1) // maxoffs)
             npos = list(self.pos)
             npos[idx] += 1 + self._handle[0]
         self._update_grab()
