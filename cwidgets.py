@@ -377,7 +377,6 @@ class Container(Widget):
 class SingleContainer(Container):
     def __init__(self, **kwds):
         Container.__init__(self, **kwds)
-        self.cmaxsize = kwds.get('cmaxsize', (None, None))
         self._chms = None
         self._chps = None
     def _child_minsize(self, **kwds):
@@ -386,9 +385,7 @@ class SingleContainer(Container):
         elif not self.children:
             self._chms = (0, 0)
         else:
-            c, cms = self.children[0].getminsize(), self.cmaxsize
-            self._chms = (min(c[0], cms[0]) if cms[0] is not None else c[0],
-                          min(c[1], cms[1]) if cms[1] is not None else c[1])
+            self._chms = self.children[0].getminsize()
         return self._chms
     def _child_prefsize(self):
         if self._chps is not None:
@@ -396,9 +393,7 @@ class SingleContainer(Container):
         elif not self.children:
             self._chps = (0, 0)
         else:
-            c, cms = self.children[0].getprefsize(), self.cmaxsize
-            self._chps = (min(c[0], cms[0]) if cms[0] is not None else c[0],
-                          min(c[1], cms[1]) if cms[1] is not None else c[1])
+            self._chps = self.children[0].getprefsize()
         return self._chps
     def add(self, widget, **config):
         while self.children:
@@ -570,6 +565,7 @@ class Viewport(SingleContainer):
     def __init__(self, **kwds):
         SingleContainer.__init__(self, **kwds)
         self.restrict_size = kwds.get('restrict_size', True)
+        self.cmaxsize = kwds.get('cmaxsize', (None, None))
         self.default_attr = kwds.get('default_attr', None)
         self.default_ch = kwds.get('default_ch', '\0')
         self.background = kwds.get('background', None)
@@ -633,6 +629,9 @@ class Viewport(SingleContainer):
     def grab_input(self, rect, pos=None, child=None, full=False):
         if rect is not None:
             new_offset = self.calc_shift(self.scrollpos, self.size, rect)
+            if pos is not None:
+                new_offset = self.calc_shift(new_offset, self.size,
+                                             (pos[0], pos[1], 1, 1))
             if new_offset != self.scrollpos:
                 self.invalidate()
             self.scrollpos[:] = new_offset
@@ -1233,7 +1232,7 @@ class BoxWidget(Widget):
         if self.valid_display: return
         Widget.draw(self, win)
         self.draw_box(win, self.pos, self.size, self.background,
-            self.background_ch, self.border)
+                      self.background_ch, self.border)
 
 class TextWidget(BoxWidget):
     def __init__(self, text='', **kwds):
@@ -1435,6 +1434,7 @@ class Strut(BaseStrut):
         return maxpos(ret, BaseStrut.getprefsize(self))
     def draw(self, win):
         if self.valid_display: return
+        BaseStrut.draw(self, win)
         # derwin()s to avoid weird character drawing glitches
         ir = deflate(
             (self.pos[0], self.pos[1], self.size[0], self.size[1]),
@@ -1443,6 +1443,7 @@ class Strut(BaseStrut):
             x = ir[0] + int(ir[2] * self.align[0])
             sw = win.derwin(ir[3], 1, ir[1], x)
             sw.bkgd('\0', self.attr)
+            sw.clear()
             sw.vline(0, 0, _curses.ACS_VLINE, ir[3])
             if self.dir.lo:
                 sw.addch(0, 0, _curses.ACS_TTEE)
@@ -1452,11 +1453,58 @@ class Strut(BaseStrut):
             y = ir[1] + int(ir[3] * self.align[1])
             sw = win.derwin(1, ir[2], y, ir[0])
             sw.bkgd('\0', self.attr)
+            sw.clear()
             sw.hline(0, 0, _curses.ACS_HLINE, ir[2])
             if self.dir.lo:
                 sw.addch(0, 0, _curses.ACS_LTEE)
             if self.dir.hi:
                 sw.insch(0, ir[2] - 1, _curses.ACS_RTEE)
+
+class Scrollbar(BaseStrut):
+    def __init__(self, dir=None, **kwds):
+        BaseStrut.__init__(self, dir, **kwds)
+        self.attr = kwds.get('attr', 0)
+        self.attr_normal = kwds.get('attr_normal', 0)
+        self.attr_active = kwds.get('attr_active', _curses.A_STANDOUT)
+        self.attr_highlight = kwds.get('attr_highlight', 0)
+        self.focused = False
+    def getprefsize(self):
+        ret = (2, 1)
+        if self.dir.vert: ret = ret[::-1]
+        return maxpos(ret, BaseStrut.getprefsize(self))
+    def draw(self, win):
+        if self.valid_display: return
+        BaseStrut.draw(self, win)
+        if self.dir.vert:
+            x = self.pos[0] + int(self.size[0] * self.align[0])
+            sw = win.derwin(self.size[1], 1, self.pos[1], x)
+            sw.bkgd('\0', self.attr)
+            sw.clear()
+            sw.addch(0, 0, _curses.ACS_UARROW)
+            sw.insch(self.size[1] - 1, 0, _curses.ACS_DARROW)
+        else:
+            y = self.pos[1] + int(self.size[1] * self.align[1])
+            sw = win.derwin(1, self.size[0], y, self.pos[0])
+            sw.bkgd('\0', self.attr)
+            sw.clear()
+            sw.addch(0, 0, _curses.ACS_LARROW)
+            sw.insch(0, self.size[0] - 1, _curses.ACS_RARROW)
+    def event(self, event):
+        ret = TextWidget.event(self, event)
+        if event[0] == FocusEvent:
+            self._set_focused(event[1])
+        return ret
+    def focus(self, rev=False):
+        return (not self.focused)
+    def _set_focused(self, state):
+        if self.focused == state: return
+        self.focused = state
+        self.on_focuschange()
+        self.invalidate()
+    def on_focuschange(self):
+        self.attr = (self.attr_active if self.focused else self.attr_normal)
+        if self.focused:
+            self.grab_input(self.rect, self.pos)
 
 class BaseRadioGroup(object):
     def __init__(self):
@@ -1522,11 +1570,15 @@ def mainloop(scr):
         WidgetRoot.make(wr)
     def grow():
         stru.pref_size[0] += 1
+        stru.pref_size[1] += 1
         stru.min_size[0] += 1
+        stru.min_size[1] += 1
         stru.invalidate_layout()
     def shrink():
         stru.pref_size[0] -= 1
+        stru.pref_size[1] -= 1
         stru.min_size[0] -= 1
+        stru.min_size[1] -= 1
         stru.invalidate_layout()
     import sys
     make_counter = [0]
@@ -1560,34 +1612,40 @@ def mainloop(scr):
                          attr_normal=_curses.color_pair(3)))
     s1 = lo.add(Strut(Strut.DIR_VERTICAL, attr=_curses.color_pair(2),
                       margin=(0, 1)))
-    vp = lo.add(Viewport(background=_curses.color_pair(2)))
-    c2 = vp.add(VerticalContainer())
+    c2 = lo.add(VerticalContainer())
     btnr = c2.add(Button('----------------\nback\n----------------',
                          text_back_changer, align=ALIGN_CENTER,
                          background=_curses.color_pair(3), border=0),
                   weight=1)
     s2 = c2.add(Strut(Strut.DIR_HORIZONTAL, attr=_curses.color_pair(2)))
-    gbox = c2.add(BoxContainer(margin=(1, 2),
+    vpc = c2.add(MarginContainer())
+    sbv = vpc.add(Scrollbar(Scrollbar.DIR_VERTICAL),
+                  slot=MarginContainer.POS_RIGHT)
+    sbh = vpc.add(Scrollbar(Scrollbar.DIR_HORIZONTAL),
+                  slot=MarginContainer.POS_BOTTOM)
+    vp = vpc.add(Viewport(background=_curses.color_pair(1),
+                          cmaxsize=(60, 20)), weight=1)
+    gbox = vp.add(BoxContainer(margin=(1, 2),
                                attr_margin=_curses.color_pair(1),
                                attr_box=_curses.color_pair(2)))
     grid = gbox.add(GridContainer(mode_x=LinearContainer.MODE_EQUAL))
     rdb2 = grid.add(grp.add(RadioBox('grow', callback=grow)),
                     pos=(0, 0))
     rdb3 = grid.add(grp.add(RadioBox('shrink', callback=shrink)),
-                    pos=(3, 1))
+                    pos=(3, 2))
     twgc = grid.add(Label(background=_curses.color_pair(3),
                           align=ALIGN_CENTER), pos=(2, 0))
     lbl1 = grid.add(Label('[3,2]', align=ALIGN_RIGHT,
                           background=_curses.color_pair(3)),
-                    pos=(3, 2))
+                    pos=(3, 3))
     lbl2 = grid.add(Label('[0,3]'), pos=(0, 3))
     stru = grid.add(DebugStrut(pref_size=[20, 0], min_size=[10, 0]),
-                    pos=(1, 3))
+                    pos=(1, 1))
     grid.config_col(0)
     grid.config_col(1, minsize=1)
     grid.config_col(2, weight=1)
     grid.config_col(3)
-    grid.config_row(1)
+    grid.config_row(1, weight=1)
     wr.main()
 
 def main():
