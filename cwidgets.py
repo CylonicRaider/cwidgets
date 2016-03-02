@@ -624,8 +624,8 @@ class Viewport(SingleContainer):
                 self.children[0].invalidate(True)
         if self.children:
             self.children[0].draw(self._pad)
-        sp = minpos(self.scrollpos, self.maxscrollpos)
-        self.scrollpos[:] = sp
+        sp = self.scrollpos
+        sp[:] = minpos(sp, self.maxscrollpos)
         self._pad.overwrite(win, sp[1], sp[0], self.pos[1], self.pos[0],
                             self.pos[1] + self.size[1] - 1,
                             self.pos[0] + self.size[0] - 1)
@@ -635,10 +635,10 @@ class Viewport(SingleContainer):
             if new_offset != self.scrollpos:
                 self.invalidate()
             self.scrollpos[:] = new_offset
-            effpos = addpos(self.pos, new_offset)
+            effpos = subpos(self.pos, new_offset)
             rect = shiftrect(rect, effpos)
         else:
-            effpos = addpos(self.pos, self.scrollpos)
+            effpos = subpos(self.pos, self.scrollpos)
         if pos is not None: pos = addpos(effpos, pos)
         SingleContainer.grab_input(self, rect, pos, child, full)
     def invalidate(self, rec=False, child=None):
