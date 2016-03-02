@@ -626,6 +626,34 @@ class Viewport(SingleContainer):
         self._pad.overwrite(win, sp[1], sp[0], self.pos[1], self.pos[0],
                             self.pos[1] + self.size[1] - 1,
                             self.pos[0] + self.size[0] - 1)
+    def event(self, event):
+        ret = SingleContainer.event(self, event)
+        if not ret:
+            if event[0] == _curses.KEY_UP:
+                if self.scrollpos[1] > 0:
+                    self.scrollpos[1] -= 1
+                    self.invalidate()
+                    self.grab_input(None)
+                    return True
+            elif event[0] == _curses.KEY_DOWN:
+                if self.scrollpos[1] < self.maxscrollpos[1]:
+                    self.scrollpos[1] += 1
+                    self.invalidate()
+                    self.grab_input(None)
+                    return True
+            elif event[0] == _curses.KEY_LEFT:
+                if self.scrollpos[0] > 0:
+                    self.scrollpos[0] -= 1
+                    self.invalidate()
+                    self.grab_input(None)
+                    return True
+            elif event[0] == _curses.KEY_RIGHT:
+                if self.scrollpos[0] < self.maxscrollpos[0]:
+                    self.scrollpos[0] += 1
+                    self.invalidate()
+                    self.grab_input(None)
+                    return True
+        return ret
     def grab_input(self, rect, pos=None, child=None, full=False):
         if rect is not None:
             new_offset = self.calc_shift(self.scrollpos, self.size, rect)
@@ -1467,13 +1495,19 @@ class Scrollbar(BaseStrut):
         self.attr_normal = kwds.get('attr_normal', 0)
         self.attr_active = kwds.get('attr_active', _curses.A_STANDOUT)
         self.attr_highlight = kwds.get('attr_highlight', 0)
+        self.visibility = kwds.get('visibility',
+            VisibilityContainer.VIS_VISIBLE)
         self.focused = False
     def getprefsize(self):
+        if self.visibility == VisibilityContainer.VIS_COLLAPSE:
+            return (0, 0)
         ret = (2, 1)
         if self.dir.vert: ret = ret[::-1]
         return maxpos(ret, BaseStrut.getprefsize(self))
     def draw(self, win):
-        if self.valid_display: return
+        if (self.valid_display or
+                self.visibility != VisibilityContainer.VIS_VISIBLE):
+            return
         BaseStrut.draw(self, win)
         if self.dir.vert:
             x = self.pos[0] + int(self.size[0] * self.align[0])
@@ -1495,7 +1529,8 @@ class Scrollbar(BaseStrut):
             self._set_focused(event[1])
         return ret
     def focus(self, rev=False):
-        return (not self.focused)
+        return (not self.focused and
+                self.visibility == VisibilityContainer.VIS_VISIBLE)
     def _set_focused(self, state):
         if self.focused == state: return
         self.focused = state
@@ -1595,19 +1630,18 @@ def mainloop(scr):
                               attr_margin=_curses.color_pair(1),
                               attr_box=_curses.color_pair(4)))
     box = obx.add(MarginContainer(border=True,
-        background=_curses.color_pair(2)))
+                                  background=_curses.color_pair(2)))
+    top = box.add(HorizontalContainer(), slot=MarginContainer.POS_TOP)
+    top.add(Strut(Strut.DIR_RIGHT, attr=_curses.color_pair(2)),
+            weight=1)
+    top.add(TextWidget('cwidgets test', attr=_curses.color_pair(2)))
+    top.add(Strut(Strut.DIR_LEFT, attr=_curses.color_pair(2)),
+            weight=1)
     lo = box.add(HorizontalContainer())
     c1 = lo.add(VerticalContainer())
     btnt = c1.add(Button('test', text_changer))
     rdb1 = c1.add(grp.add(RadioBox('NOP')))
-    mct1 = c1.add(MarginContainer(insets=(1, 0)), weight=1)
-    mct1.add(Widget(minsize=(0, 1)), slot=MarginContainer.POS_TOP)
-    mct1.add(DebugStrut(pref_size=(5, 0), min_size=(0, 0)),
-             slot=MarginContainer.POS_LEFT)
-    mct1.add(BoxWidget(background=_curses.color_pair(1), minsize=(5, 1)))
-    mct1.add(DebugStrut(pref_size=(5, 0), min_size=(0, 0)),
-             slot=MarginContainer.POS_RIGHT)
-    mct1.add(Widget(minsize=(0, 1)), slot=MarginContainer.POS_BOTTOM)
+    spc1 = c1.add(Widget(), weight=1)
     btne = c1.add(Button('exit', sys.exit,
                          attr_normal=_curses.color_pair(3)))
     s1 = lo.add(Strut(Strut.DIR_VERTICAL, attr=_curses.color_pair(2),
@@ -1618,7 +1652,8 @@ def mainloop(scr):
                          background=_curses.color_pair(3), border=0),
                   weight=1)
     s2 = c2.add(Strut(Strut.DIR_HORIZONTAL, attr=_curses.color_pair(2)))
-    vpc = c2.add(MarginContainer())
+    vpc = c2.add(MarginContainer(border=1,
+                                 background=_curses.color_pair(2)))
     sbv = vpc.add(Scrollbar(Scrollbar.DIR_VERTICAL),
                   slot=MarginContainer.POS_RIGHT)
     sbh = vpc.add(Scrollbar(Scrollbar.DIR_HORIZONTAL),
