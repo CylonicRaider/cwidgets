@@ -123,6 +123,64 @@ ALIGN_CENTER = Alignment(0.5, 'ALIGN_CENTER')
 ALIGN_RIGHT = Alignment(1.0, 'ALIGN_RIGHT')
 ALIGN_BOTTOM = Alignment(1.0, 'ALIGN_BOTTOM')
 
+class Scrollable:
+    def __init__(self):
+        self.scrollpos = [0, 0]
+        self.maxscrollpos = (0, 0)
+        self.childsize = (0, 0)
+        self.scrollbars = {'vert': None, 'horiz': None}
+        self.focusable = True
+    def bind(self, scrollbar):
+        if scrollbar.dir.vert:
+            osb = self.scrollbars['vert']
+            if osb is scrollbar: return
+            if osb: self.unbind(osb)
+            self.scrollbars['vert'] = scrollbar
+            scrollbar.bind(self)
+        else:
+            osb = self.scrollbars['horiz']
+            if osb is scrollbar: return
+            if osb: self.unbind(osb)
+            self.scrollbars['horiz'] = scrollbar
+            scrollbar.bind(self)
+        return scrollbar
+    def unbind(self, scrollbar):
+        if self.scrollbars['vert'] is scrollbar:
+            self.scrollbars['vert'] = None
+            scrollbar.unbind(self)
+        elif self.scrollbars['horiz'] is scrollbar:
+            self.scrollbars['horiz'] = None
+            scrollbar.unbind(self)
+        return scrollbar
+    def scroll(self, newpos, rel=False):
+        if rel: newpos = addpos(self.scrollpos, newpos)
+        newpos = maxpos((0, 0), minpos(newpos, self.maxscrollpos))
+        oldpos = tuple(self.scrollpos)
+        update = (newpos[0] != oldpos[0] or newpos[1] != oldpos[1])
+        self.scrollpos[:] = newpos
+        self.on_scroll(oldpos)
+        return update
+    def on_scroll(self, oldpos):
+        if self.scrollbars['vert']:
+            self.scrollbars['vert'].update()
+        if self.scrollbars['horiz']:
+            self.scrollbars['horiz'].update()
+    def on_highlight(self, active):
+        if self.scrollbars['vert']:
+            self.scrollbars['vert'].highlight(active)
+        if self.scrollbars['horiz']:
+            self.scrollbars['horiz'].highlight(active)
+    def scroll_event(self, event):
+        if event[0] == _curses.KEY_UP:
+            return self.scroll((0, -1), True)
+        elif event[0] == _curses.KEY_DOWN:
+            return self.scroll((0, 1), True)
+        elif event[0] == _curses.KEY_LEFT:
+            return self.scroll((-1, 0), True)
+        elif event[0] == _curses.KEY_RIGHT:
+            return self.scroll((1, 0), True)
+        return False
+
 class WidgetRoot(object):
     def __init__(self, window):
         self.window = window
@@ -552,7 +610,7 @@ class AlignContainer(VisibilityContainer):
         VisibilityContainer.invalidate_layout(self)
         self._wbox = None
 
-class Viewport(SingleContainer):
+class Viewport(SingleContainer, Scrollable):
     @classmethod
     def calc_shift(cls, offset, size, rect):
         ret = list(offset)
@@ -564,14 +622,14 @@ class Viewport(SingleContainer):
         return ret
     def __init__(self, **kwds):
         SingleContainer.__init__(self, **kwds)
+        Scrollable.__init__(self)
         self.restrict_size = kwds.get('restrict_size', True)
         self.cmaxsize = kwds.get('cmaxsize', (None, None))
         self.default_attr = kwds.get('default_attr', None)
         self.default_ch = kwds.get('default_ch', '\0')
         self.background = kwds.get('background', None)
         self.background_ch = kwds.get('background_ch', '\0')
-        self.scrollpos = [0, 0]
-        self.maxscrollpos = (0, 0)
+        self.focusable = False
         self.padsize = (0, 0)
         self._pad = None
     def getminsize(self):
@@ -593,10 +651,14 @@ class Viewport(SingleContainer):
             self.children[0].size = maxpos(self.size, chs)
             self.padsize = maxpos(self.children[0].size, self.size)
             self.maxscrollpos = subpos(self.padsize, self.size)
+            self.childsize = self.children[0].size
         else:
             self.padsize = self.size
             self.maxscrollpos = (0, 0)
+            self.childsize = (0, 0)
+        oldpos = tuple(self.scrollpos)
         self.scrollpos[:] = minpos(self.scrollpos, self.maxscrollpos)
+        self.on_scroll(oldpos)
     def draw(self, win):
         if self.valid_display: return
         Widget.draw(self, win)
@@ -629,40 +691,20 @@ class Viewport(SingleContainer):
     def event(self, event):
         ret = SingleContainer.event(self, event)
         if not ret:
-            if event[0] == _curses.KEY_UP:
-                if self.scrollpos[1] > 0:
-                    self.scrollpos[1] -= 1
-                    self.invalidate()
-                    self.grab_input(None)
-                    return True
-            elif event[0] == _curses.KEY_DOWN:
-                if self.scrollpos[1] < self.maxscrollpos[1]:
-                    self.scrollpos[1] += 1
-                    self.invalidate()
-                    self.grab_input(None)
-                    return True
-            elif event[0] == _curses.KEY_LEFT:
-                if self.scrollpos[0] > 0:
-                    self.scrollpos[0] -= 1
-                    self.invalidate()
-                    self.grab_input(None)
-                    return True
-            elif event[0] == _curses.KEY_RIGHT:
-                if self.scrollpos[0] < self.maxscrollpos[0]:
-                    self.scrollpos[0] += 1
-                    self.invalidate()
-                    self.grab_input(None)
-                    return True
+            if self.scroll_event(event):
+                self.grab_input(None)
+                return True
         return ret
     def grab_input(self, rect, pos=None, child=None, full=False):
         if rect is not None:
-            new_offset = self.calc_shift(self.scrollpos, self.size, rect)
+            oldpos = tuple(self.scrollpos)
+            new_offset = self.calc_shift(oldpos, self.size, rect)
             if pos is not None:
                 new_offset = self.calc_shift(new_offset, self.size,
                                              (pos[0], pos[1], 1, 1))
-            if new_offset != self.scrollpos:
-                self.invalidate()
             self.scrollpos[:] = new_offset
+            if new_offset[0] != oldpos[0] or new_offset[1] != oldpos[1]:
+                self.on_scroll(oldpos)
             effpos = subpos(self.pos, new_offset)
             rect = shiftrect(rect, effpos)
         else:
@@ -677,6 +719,10 @@ class Viewport(SingleContainer):
     def invalidate_layout(self):
         SingleContainer.invalidate_layout(self)
         self._pad = None
+    def on_scroll(self, oldpos):
+        Scrollable.on_scroll(self, oldpos)
+        if tuple(oldpos) != tuple(self.scrollpos):
+            self.invalidate()
 
 class StackContainer(Container):
     def __init__(self, **kwds):
@@ -1494,10 +1540,13 @@ class Scrollbar(BaseStrut):
         self.attr = kwds.get('attr', 0)
         self.attr_normal = kwds.get('attr_normal', 0)
         self.attr_active = kwds.get('attr_active', _curses.A_STANDOUT)
-        self.attr_highlight = kwds.get('attr_highlight', 0)
+        self.attr_highlight = kwds.get('attr_highlight', _curses.A_STANDOUT)
         self.visibility = kwds.get('visibility',
             VisibilityContainer.VIS_VISIBLE)
         self.focused = False
+        self.highlighted = False
+        self.bound = None
+        self._handle = None
     def getprefsize(self):
         if self.visibility == VisibilityContainer.VIS_COLLAPSE:
             return (0, 0)
@@ -1514,6 +1563,8 @@ class Scrollbar(BaseStrut):
             sw = win.derwin(self.size[1], 1, self.pos[1], x)
             sw.bkgd('\0', self.attr)
             sw.clear()
+            if self._handle:
+                sw.vline(self._handle[0] + 1, 0, '#', self._handle[1])
             sw.addch(0, 0, _curses.ACS_UARROW)
             sw.insch(self.size[1] - 1, 0, _curses.ACS_DARROW)
         else:
@@ -1521,25 +1572,73 @@ class Scrollbar(BaseStrut):
             sw = win.derwin(1, self.size[0], y, self.pos[0])
             sw.bkgd('\0', self.attr)
             sw.clear()
+            if self._handle:
+                sw.hline(0, self._handle[0] + 1, '#', self._handle[1])
             sw.addch(0, 0, _curses.ACS_LARROW)
             sw.insch(0, self.size[0] - 1, _curses.ACS_RARROW)
     def event(self, event):
         ret = TextWidget.event(self, event)
         if event[0] == FocusEvent:
             self._set_focused(event[1])
+        if not ret and self.bound:
+            return self.bound.scroll_event(event)
         return ret
     def focus(self, rev=False):
         return (not self.focused and
+                not (self.bound and self.bound.focusable) and
                 self.visibility == VisibilityContainer.VIS_VISIBLE)
     def _set_focused(self, state):
         if self.focused == state: return
         self.focused = state
         self.on_focuschange()
         self.invalidate()
-    def on_focuschange(self):
-        self.attr = (self.attr_active if self.focused else self.attr_normal)
+        self.highlight(state)
+    def _update_grab(self):
         if self.focused:
-            self.grab_input(self.rect, self.pos)
+            if self._handle:
+                npos = list(self.pos)
+                npos[1 if self.dir.vert else 0] += 1 + self._handle[0]
+                self.grab_input(self.rect, tuple(npos))
+            else:
+                self.grab_input(self.rect, self.pos)
+    def on_focuschange(self):
+        self.attr = (self.attr_active if self.focused else
+            self.attr_highlight if self.highlighted else self.attr_normal)
+        self._update_grab()
+    def bind(self, parent):
+        if parent is self.bound: return
+        self.bound = parent
+        parent.bind(self)
+        return parent
+    def unbind(self, parent):
+        if parent is not self.bound: return
+        self.bound = None
+        parent.unbind(self)
+        return parent
+    def highlight(self, active):
+        if active == self.highlighted: return
+        self.highlighted = active
+        self.on_focuschange()
+        self.invalidate()
+        if self.bound is not None: self.bound.on_highlight(active)
+    def update(self):
+        if not self.bound: return
+        idx = (1 if self.dir.vert else 0)
+        offs = self.bound.scrollpos[idx]
+        maxoffs = self.bound.maxscrollpos[idx]
+        size = self.bound.size[idx]
+        isize = self.bound.childsize[idx]
+        ssize = self.size[idx] - 2
+        if isize == size:
+            self._handle = None
+        else:
+            hlen = max(size * ssize // isize, 1)
+            hrem = ssize - hlen
+            self._handle = (offs * hrem // maxoffs, hlen)
+            npos = list(self.pos)
+            npos[idx] += 1 + self._handle[0]
+        self._update_grab()
+        self.invalidate()
 
 class BaseRadioGroup(object):
     def __init__(self):
@@ -1624,6 +1723,7 @@ def mainloop(scr):
     _curses.init_pair(2, _curses.COLOR_BLACK, _curses.COLOR_WHITE)
     _curses.init_pair(3, _curses.COLOR_BLACK, _curses.COLOR_RED)
     _curses.init_pair(4, _curses.COLOR_GREEN, _curses.COLOR_BLACK)
+    _curses.init_pair(5, _curses.COLOR_WHITE, _curses.COLOR_RED)
     rv = wr.add(Viewport())
     obx = rv.add(BoxContainer(margin=None, border=(0, 0, 0, 1),
                               padding=(1, 2),
@@ -1654,12 +1754,14 @@ def mainloop(scr):
     s2 = c2.add(Strut(Strut.DIR_HORIZONTAL, attr=_curses.color_pair(2)))
     vpc = c2.add(MarginContainer(border=1,
                                  background=_curses.color_pair(2)))
-    sbv = vpc.add(Scrollbar(Scrollbar.DIR_VERTICAL),
-                  slot=MarginContainer.POS_RIGHT)
-    sbh = vpc.add(Scrollbar(Scrollbar.DIR_HORIZONTAL),
-                  slot=MarginContainer.POS_BOTTOM)
     vp = vpc.add(Viewport(background=_curses.color_pair(1),
                           cmaxsize=(60, 20)), weight=1)
+    sbv = vpc.add(vp.bind(Scrollbar(Scrollbar.DIR_VERTICAL,
+                                    attr_highlight=_curses.color_pair(5))),
+                  slot=MarginContainer.POS_RIGHT)
+    sbh = vpc.add(vp.bind(Scrollbar(Scrollbar.DIR_HORIZONTAL,
+                                    attr_highlight=_curses.color_pair(5))),
+                  slot=MarginContainer.POS_BOTTOM)
     gbox = vp.add(BoxContainer(margin=(1, 2),
                                attr_margin=_curses.color_pair(1),
                                attr_box=_curses.color_pair(2)))
