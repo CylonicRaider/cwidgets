@@ -1497,6 +1497,27 @@ class BaseStrut(Widget):
         self.align = parse_pair(kwds.get('align', ALIGN_CENTER))
 
 class Strut(BaseStrut):
+    @staticmethod
+    def draw_strut(win, pos, len, dir, attr):
+        # derwin()s to avoid weird character drawing glitches
+        if dir.vert:
+            sw = win.derwin(len, 1, pos[1], pos[0])
+            sw.bkgd('\0', attr)
+            sw.clear()
+            sw.vline(0, 0, _curses.ACS_VLINE, len)
+            if dir.lo:
+                sw.addch(0, 0, _curses.ACS_TTEE)
+            if dir.hi:
+                sw.insch(len - 1, 0, _curses.ACS_BTEE)
+        else:
+            sw = win.derwin(1, len, pos[1], pos[0])
+            sw.bkgd('\0', attr)
+            sw.clear()
+            sw.hline(0, 0, _curses.ACS_HLINE, len)
+            if dir.lo:
+                sw.addch(0, 0, _curses.ACS_LTEE)
+            if dir.hi:
+                sw.insch(0, len - 1, _curses.ACS_RTEE)
     def __init__(self, dir=None, **kwds):
         BaseStrut.__init__(self, dir, **kwds)
         self.attr = kwds.get('attr', 0)
@@ -1509,30 +1530,17 @@ class Strut(BaseStrut):
     def draw(self, win):
         if self.valid_display: return
         BaseStrut.draw(self, win)
-        # derwin()s to avoid weird character drawing glitches
         ir = deflate(
             (self.pos[0], self.pos[1], self.size[0], self.size[1]),
             self.margin)
+        x, y = ir[:2]
         if self.dir.vert:
-            x = ir[0] + int(ir[2] * self.align[0])
-            sw = win.derwin(ir[3], 1, ir[1], x)
-            sw.bkgd('\0', self.attr)
-            sw.clear()
-            sw.vline(0, 0, _curses.ACS_VLINE, ir[3])
-            if self.dir.lo:
-                sw.addch(0, 0, _curses.ACS_TTEE)
-            if self.dir.hi:
-                sw.insch(ir[3] - 1, 0, _curses.ACS_BTEE)
+            x += int(ir[2] * self.align[0])
+            l = ir[3]
         else:
-            y = ir[1] + int(ir[3] * self.align[1])
-            sw = win.derwin(1, ir[2], y, ir[0])
-            sw.bkgd('\0', self.attr)
-            sw.clear()
-            sw.hline(0, 0, _curses.ACS_HLINE, ir[2])
-            if self.dir.lo:
-                sw.addch(0, 0, _curses.ACS_LTEE)
-            if self.dir.hi:
-                sw.insch(0, ir[2] - 1, _curses.ACS_RTEE)
+            y += int(ir[3] * self.align[1])
+            l = ir[2]
+        self.draw_strut(win, (x, y), l, self.dir, self.attr)
 
 class Scrollbar(BaseStrut):
     def __init__(self, dir=None, **kwds):
