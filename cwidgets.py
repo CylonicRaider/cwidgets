@@ -112,16 +112,22 @@ class Singleton:
 class Event(Singleton): pass
 FocusEvent = Event('FocusEvent')
 
-class Alignment(Singleton, float):
+class NumericSingleton(Singleton, float):
     def __new__(cls, __value__, __name__, **__dict__):
         return float.__new__(cls, __value__)
     def __init__(self, __value__, __name__, **__dict__):
         Singleton.__init__(self, __name__, **__dict__)
+
+class Alignment(NumericSingleton): pass
 ALIGN_TOP = Alignment(0.0, 'ALIGN_TOP')
 ALIGN_LEFT = Alignment(0.0, 'ALIGN_LEFT')
 ALIGN_CENTER = Alignment(0.5, 'ALIGN_CENTER')
 ALIGN_RIGHT = Alignment(1.0, 'ALIGN_RIGHT')
 ALIGN_BOTTOM = Alignment(1.0, 'ALIGN_BOTTOM')
+
+class Scalement(NumericSingleton): pass
+SCALE_COMPRESS = Scalement(0.0, 'SCALE_COMPRESS')
+SCALE_STRETCH = Scalement(1.0, 'SCALE_STRETCH')
 
 class Scrollable:
     def __init__(self):
@@ -483,15 +489,6 @@ class VisibilityContainer(SingleContainer):
         SingleContainer.draw(self, win)
 
 class BoxContainer(VisibilityContainer):
-    class ScalePolicy(Singleton): pass
-    # Leave widget at preferred size.
-    SCALE_PREFERRED = ScalePolicy('SCALE_PREFERRED')
-    # Push widget to minimum of preferred size and available size.
-    SCALE_COMPRESS = ScalePolicy('SCALE_COMPRESS')
-    # Stretch widget to maximum of preferred size and available size.
-    SCALE_STRETCH = ScalePolicy('SCALE_STRETCH')
-    # Force widget to fit available size.
-    SCALE_FIT = ScalePolicy('SCALE_FIT')
     @classmethod
     def calc_pads_1d(cls, outer, margin, border, padding, size, minsize):
         def inset(avl, pad, prefsize, minsize):
@@ -576,16 +573,10 @@ class BoxContainer(VisibilityContainer):
 class AlignContainer(VisibilityContainer):
     @classmethod
     def calc_wbox_1d(cls, pref, avl, scale, align):
-        if avl == pref or scale == cls.SCALE_PREFERRED:
-            size = pref
-        elif scale == cls.SCALE_COMPRESS:
-            size = min(pref, avl)
-        elif scale == cls.SCALE_STRETCH:
-            size = max(pref, avl)
-        elif scale == cls.SCALE_FIT:
+        if avl < pref:
             size = avl
         else:
-            raise ValueError('Invalid scale for calc_wbox()')
+            size = pref + int((avl - pref) * scale)
         return (int((avl - size) * align), size)
     @classmethod
     def calc_wbox(cls, pref, avl, scale, align, pos=(0, 0)):
@@ -595,8 +586,8 @@ class AlignContainer(VisibilityContainer):
             ), ()), pos)
     def __init__(self, **kwds):
         VisibilityContainer.__init__(self, **kwds)
-        self.scale = parse_pair(kwds.get('scale', self.SCALE_FIT))
-        self.align = parse_pair(kwds.get('scale', ALIGN_CENTER))
+        self.scale = parse_pair(kwds.get('scale', SCALE_COMPRESS))
+        self.align = parse_pair(kwds.get('align', ALIGN_CENTER))
         self._wbox = None
     def relayout(self):
         if self._wbox is None:
@@ -1326,8 +1317,10 @@ class TextWidget(BoxWidget):
     def make(self):
         BoxWidget.make(self)
         i = (1 if self.border else 0)
-        ew = (self.size[0] - len(self._text_prefix()) -
-              len(self._text_suffix()) - 2 * i)
+        tp, ts = self._text_prefix(), self._text_suffix()
+        ltp = (1 if isinstance(tp, int) else len(tp))
+        lts = (1 if isinstance(ts, int) else len(ts))
+        ew = (self.size[0] - ltp - lts - 2 * i)
         eh = self.size[1] - 2 * i
         self._indents = tuple(int((ew - len(l)) * self.align[0])
                               for l in self._lines)
@@ -1338,9 +1331,11 @@ class TextWidget(BoxWidget):
         i = (1 if self.border else 0)
         pref = self._text_prefix()
         suff = self._text_suffix()
+        ltp = (1 if isinstance(pref, int) else len(pref))
+        lts = (1 if isinstance(suff, int) else len(suff))
         x, y = self.pos
-        x += len(pref)
-        w = self.size[0] - 2 * i - len(pref) - len(suff)
+        x += ltp
+        w = self.size[0] - 2 * i - ltp - lts
         h = self.size[1] - 2 * i
         if self.textbg is None:
             pass
@@ -1354,12 +1349,12 @@ class TextWidget(BoxWidget):
         for d, l in zip(self._indents[:h], self._lines[:h]):
             win.addnstr(y + i, x + i + d, l, w, self.attr)
             y += 1
-        win.addstr(self.pos[1] + i, self.pos[0] + i, pref,
-                   self.attr)
+        func = (win.addch if isinstance(pref, int) else win.addstr)
+        func(self.pos[1] + i, self.pos[0] + i, pref, self.attr)
         if suff:
-            win.addstr(self.pos[1] + i + h - 1,
-                       self.pos[0] + i + w + len(pref),
-                       suff, self.attr)
+            func = (win.addch if isinstance(suff, int) else win.addstr)
+            func(self.pos[1] + i + h - 1, self.pos[0] + i + w + lts,
+                 suff, self.attr)
     def _text_prefix(self):
         return ''
     def _text_suffix(self):
@@ -1378,11 +1373,22 @@ class TextWidget(BoxWidget):
         if self.border:
             ps[0] += 2
             ps[1] += 2
-        ps[0] += len(self._text_prefix()) + len(self._text_suffix())
+        tp, ts = self._text_prefix(), self._text_suffix()
+        ps[0] += (1 if isinstance(tp, int) else len(tp))
+        ps[0] += (1 if isinstance(ts, int) else len(ts))
         self._prefsize = tuple(ps)
         self.invalidate_layout()
 
-class Label(TextWidget): pass
+class Label(TextWidget):
+    def __init__(self, text='', **kwds):
+        tees = kwds.get('tees', False)
+        self.tee_before = kwds.get('tee_before', tees)
+        self.tee_after = kwds.get('tee_after', tees)
+        TextWidget.__init__(self, text, **kwds)
+    def _text_prefix(self):
+        return (_curses.ACS_RTEE if self.tee_before else '')
+    def _text_suffix(self):
+        return (_curses.ACS_LTEE if self.tee_after else '')
 
 class Button(TextWidget):
     def __init__(self, text='', callback=None, **kwds):
@@ -1744,12 +1750,9 @@ def mainloop(scr):
                               attr_box=_curses.color_pair(4)))
     box = obx.add(MarginContainer(border=True,
                                   background=_curses.color_pair(2)))
-    top = box.add(HorizontalContainer(), slot=MarginContainer.POS_TOP)
-    top.add(Strut(Strut.DIR_RIGHT, attr=_curses.color_pair(2)),
-            weight=1)
-    top.add(TextWidget('cwidgets test', attr=_curses.color_pair(2)))
-    top.add(Strut(Strut.DIR_LEFT, attr=_curses.color_pair(2)),
-            weight=1)
+    top = box.add(AlignContainer(), slot=MarginContainer.POS_TOP)
+    hdr = top.add(Label('cwidgets test', tees=True,
+                        attr=_curses.color_pair(2)))
     lo = box.add(HorizontalContainer())
     c1 = lo.add(VerticalContainer())
     btnt = c1.add(Button('test', text_changer))
@@ -1767,6 +1770,9 @@ def mainloop(scr):
     s2 = c2.add(Strut(Strut.DIR_HORIZONTAL, attr=_curses.color_pair(2)))
     vpc = c2.add(MarginContainer(border=1,
                                  background=_curses.color_pair(2)))
+    vpt = vpc.add(AlignContainer(align=ALIGN_LEFT),
+                  slot=MarginContainer.POS_TOP)
+    vpt.add(Label('scrolling test', tees=True, attr=_curses.color_pair(2)))
     vp = vpc.add(Viewport(background=_curses.color_pair(1),
                           cmaxsize=(60, 20)), weight=1)
     sbv = vpc.add(vp.bind(Scrollbar(Scrollbar.DIR_VERTICAL,
