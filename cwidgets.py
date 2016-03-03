@@ -1597,9 +1597,10 @@ class Scrollbar(BaseStrut):
         if self.focused:
             if self._handle:
                 idx = (1 if self.dir.vert else 0)
-                npos, cpos = list(self.pos), list(self.pos)
+                npos = list(self.pos)
                 npos[idx] += 1 + self._handle[0]
-                cpos[idx] += 1 + self._handle[2]
+                cpos = list(npos)
+                cpos[idx] += self._handle[2]
                 self.grab_input(self.rect, tuple(cpos))
             else:
                 self.grab_input(self.rect, self.pos)
@@ -1631,13 +1632,14 @@ class Scrollbar(BaseStrut):
         size = self.bound.size[idx]
         isize = self.bound.childsize[idx]
         ssize = self.size[idx] - 2
-        if isize == size:
+        if isize == size or ssize == 0:
             self._handle = None
         else:
             hlen = max(size * ssize // isize, 1)
             hrem = ssize - hlen
-            self._handle = (offs * hrem // maxoffs, hlen,
-                            offs * (ssize - 1) // maxoffs)
+            self._handle = ((offs * hrem + maxoffs // 2) // maxoffs,
+                            hlen,
+                            (offs * (hlen - 1) + maxoffs // 2) // maxoffs)
             npos = list(self.pos)
             npos[idx] += 1 + self._handle[0]
         self._update_grab()
