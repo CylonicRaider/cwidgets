@@ -1865,7 +1865,8 @@ def mainloop(scr):
                          text_back_changer, align=ALIGN_CENTER,
                          background=_curses.color_pair(3), border=0),
                   weight=1)
-    entr = c2.add(EntryBox(border=True, multiline=True,
+    entr = c2.add(EntryBox(text=str(_curses.KEY_BACKSPACE),
+                           border=True, multiline=True,
                            attr_normal=_curses.color_pair(1)))
     s2 = c2.add(Strut(Strut.DIR_HORIZONTAL, attr=_curses.color_pair(2)))
     vpc = c2.add(MarginContainer(border=1,
