@@ -1486,6 +1486,7 @@ class EntryBox(TextWidget):
         self.attr_normal = kwds.get('attr_normal', 0)
         self.attr_active = kwds.get('attr_active', _curses.A_STANDOUT)
         self.multiline = kwds.get('multiline', False)
+        self.backspace_hack = kwds.get('backspace_hack', True)
         self.callback = callback
         self.focused = False
         self.cur_pos = 0
@@ -1501,7 +1502,11 @@ class EntryBox(TextWidget):
             else:
                 self.on_activate()
             return True
-        elif event[0] == _curses.KEY_BACKSPACE:
+        elif event[0] == _curses.KEY_EOL:
+            self.insert('\n')
+            return True
+        elif (event[0] == _curses.KEY_BACKSPACE or
+                self.backspace_hack and event[0] == 255):
             if self.cur_pos:
                 self.edit(delete=(-1, 0), adjust=-1, rel=True)
                 return True
@@ -1517,6 +1522,12 @@ class EntryBox(TextWidget):
             if self.cur_pos < len(st):
                 self.edit(adjust=1)
                 return True
+        elif event[0] == _curses.KEY_HOME:
+            self.edit(moveto=0)
+            return True
+        elif event[0] == _curses.KEY_END:
+            self.edit(moveto=len(self.text))
+            return True
         elif isinstance(event[0], int) and event[0] < 256:
             self.insert(chr(event[0]))
             return True
