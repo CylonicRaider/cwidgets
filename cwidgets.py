@@ -1506,7 +1506,7 @@ class EntryBox(TextWidget):
             self.insert('\n')
             return True
         elif (event[0] == _curses.KEY_BACKSPACE or
-                self.backspace_hack and event[0] == 255):
+                self.backspace_hack and event[0] == 127):
             if self.cur_pos:
                 self.edit(delete=(-1, 0), adjust=-1, rel=True)
                 return True
