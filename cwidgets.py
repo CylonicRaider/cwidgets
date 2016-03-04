@@ -1314,8 +1314,7 @@ class TextWidget(BoxWidget):
         self.text = text
     def getprefsize(self):
         return maxpos(self.minsize, self._prefsize)
-    def make(self):
-        BoxWidget.make(self)
+    def _update_indents(self):
         i = (1 if self.border else 0)
         tp, ts = self._text_prefix(), self._text_suffix()
         ltp = (1 if isinstance(tp, int) else len(tp))
@@ -1325,6 +1324,9 @@ class TextWidget(BoxWidget):
         self._indents = tuple(int((ew - len(l)) * self.align[0])
                               for l in self._lines)
         self._vindent = int((eh - len(self._lines)) * self.align[0])
+    def make(self):
+        BoxWidget.make(self)
+        self._update_indents()
     def draw(self, win):
         if self.valid_display: return
         BoxWidget.draw(self, win)
@@ -1368,7 +1370,7 @@ class TextWidget(BoxWidget):
         self._text = text
         self._lines = text.split('\n')
         ps = [0, 0]
-        if len(self._lines) != 0:
+        if self._lines:
             ps = [max(len(i) for i in self._lines), len(self._lines)]
         if self.border:
             ps[0] += 2
@@ -1395,10 +1397,9 @@ class Button(TextWidget):
         TextWidget.__init__(self, text, **kwds)
         self.attr_normal = kwds.get('attr_normal', 0)
         self.attr_active = kwds.get('attr_active', _curses.A_STANDOUT)
-        self.focused = False
         self.callback = callback
         self.attr = self.attr_normal
-        self._raw_text = None
+        self.focused = False
     def event(self, event):
         ret = TextWidget.event(self, event)
         if event[0] in (_KEY_RETURN, _KEY_SPACE):
@@ -1478,6 +1479,103 @@ class RadioBox(ToggleButton):
     def on_activate(self):
         ToggleButton.on_activate(self)
         self.state = True
+
+class EntryBox(TextWidget):
+    def __init__(self, text='', callback=None, **kwds):
+        TextWidget.__init__(self, text, **kwds)
+        self.attr_normal = kwds.get('attr_normal', 0)
+        self.attr_active = kwds.get('attr_active', _curses.A_STANDOUT)
+        self.multiline = kwds.get('multiline', False)
+        self.callback = callback
+        self.focused = False
+        self.cur_pos = 0
+        self.attr = self.attr_normal
+    def event(self, event):
+        ret = TextWidget.event(self, event)
+        st = self.text
+        if event[0] == FocusEvent:
+            self._set_focused(event[1])
+        elif event[0] == _KEY_RETURN:
+            if self.multiline:
+                self.insert('\n')
+            else:
+                self.on_activate()
+            return True
+        elif event[0] == _curses.KEY_BACKSPACE:
+            if self.cur_pos:
+                self.edit(delete=(-1, 0), adjust=-1, rel=True)
+                return True
+        elif event[0] == _curses.KEY_DC:
+            if self.cur_pos < len(st):
+                self.edit(delete=(0, 1), rel=True)
+                return True
+        elif event[0] == _curses.KEY_LEFT:
+            if self.cur_pos:
+                self.edit(adjust=-1)
+                return True
+        elif event[0] == _curses.KEY_RIGHT:
+            if self.cur_pos < len(st):
+                self.edit(adjust=1)
+                return True
+        elif isinstance(event[0], int) and event[0] < 256:
+            self.insert(chr(event[0]))
+            return True
+        return ret
+    def focus(self, rev=False):
+        return (not self.focused)
+    def _set_focused(self, state):
+        if self.focused == state: return
+        self.focused = state
+        self.on_focuschange()
+        self.invalidate()
+    def _update_curpos(self):
+        if self.focused:
+            self.grab_input(self.rect, addpos(self.pos, self.cur_coords()))
+    def on_focuschange(self):
+        self.attr = (self.attr_active if self.focused else self.attr_normal)
+        self._update_curpos()
+    def on_activate(self):
+        if self.callback is not None:
+            self.callback()
+    def cur_coords(self, p=None):
+        if p is None: p = self.cur_pos
+        if p >= len(self._text): p = len(self._text)
+        x, y = p, 0
+        for l in self._lines:
+            if x <= len(l): break
+            x -= len(l) + 1
+            y += 1
+        try:
+            x += self._indents[y]
+        except IndexError:
+            raise SystemExit(repr((self._indents, x, y)))
+        y += self._vindent
+        if self.border:
+            x += 1
+            y += 1
+        return (x, y)
+    def edit(self, delete=None, moveto=None, insert=None, adjust=None,
+             rel=False):
+        cp = self.cur_pos
+        if rel:
+            if delete: delete = (delete[0] + cp, delete[1] + cp)
+            if moveto: moveto += cp
+        st = self.text
+        if delete is not None:
+            st = st[:max(delete[0], 0)] + st[max(delete[1], 0):]
+        if moveto is not None:
+            self.cur_pos = max(0, min(moveto, len(st)))
+        if insert is not None:
+            st = st[:self.cur_pos] + insert + st[self.cur_pos:]
+        if adjust:
+            self.cur_pos += adjust
+        self.cur_pos = max(0, min(self.cur_pos, len(st)))
+        self.text = st
+        self._update_indents()
+        self._update_curpos()
+        self.invalidate_layout()
+    def insert(self, text, moveto=None):
+        self.edit(moveto=moveto, insert=text, adjust=len(text))
 
 class BaseStrut(Widget):
     class Direction(Singleton): pass
@@ -1767,6 +1865,8 @@ def mainloop(scr):
                          text_back_changer, align=ALIGN_CENTER,
                          background=_curses.color_pair(3), border=0),
                   weight=1)
+    entr = c2.add(EntryBox(border=True, multiline=True,
+                           attr_normal=_curses.color_pair(1)))
     s2 = c2.add(Strut(Strut.DIR_HORIZONTAL, attr=_curses.color_pair(2)))
     vpc = c2.add(MarginContainer(border=1,
                                  background=_curses.color_pair(2)))
