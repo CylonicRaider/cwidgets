@@ -11,6 +11,8 @@ _KEY_SPACE = ord(' ')
 
 #LOG = []
 
+def zbound(v, m):
+    return max(0, min(v, m))
 def addpos(p1, p2):
     return (p1[0] + p2[0], p1[1] + p2[1])
 def subpos(p1, p2):
@@ -209,7 +211,7 @@ class WidgetRoot(object):
                 _curses.curs_set(0)
                 self.window.refresh()
             else:
-                self.window.refresh()
+                self.window.noutrefresh()
                 _curses.curs_set(1)
                 _curses.setsyx(self._cursorpos[1], self._cursorpos[0])
                 _curses.doupdate()
@@ -655,14 +657,14 @@ class Viewport(SingleContainer, Scrollable):
         Widget.draw(self, win)
         chsz = self.padsize
         if self._pad is None:
-            self._pad = _curses.newpad(chsz[1], chsz[0])
+            self._pad = _curses.newpad(chsz[1] + 1, chsz[0] + 1)
             if self.default_attr is not None:
                 self._pad.bkgd(self.default_ch, self.default_attr)
             pad_changed = True
         else:
             padsz = self._pad.getmaxyx()
-            if padsz[1] != chsz[0] or padsz[0] != chsz[1]:
-                self._pad.resize(chsz[1], chsz[0])
+            if padsz[1] != chsz[0] + 1 or padsz[0] != chsz[1] + 1:
+                self._pad.resize(chsz[1] + 1, chsz[0] + 1)
                 pad_changed = True
             else:
                 pad_changed = False
@@ -700,7 +702,8 @@ class Viewport(SingleContainer, Scrollable):
             rect = shiftrect(rect, effpos)
         else:
             effpos = subpos(self.pos, self.scrollpos)
-        if pos is not None: pos = addpos(effpos, pos)
+        if pos is not None:
+            pos = addpos(effpos, pos)
         SingleContainer.grab_input(self, rect, pos, child, full)
     def invalidate(self, rec=False, child=None):
         # Child is rendered to offscreen pad, and cannot be invalidated
@@ -1306,6 +1309,7 @@ class TextWidget(BoxWidget):
         self.textbg = kwds.get('textbg', Ellipsis)
         self.textbgch = kwds.get('textbgch', '\0')
         self.align = parse_pair(kwds.get('align'), (ALIGN_LEFT, ALIGN_TOP))
+        self._extra_col = False
         self._text = None
         self._lines = ()
         self._indents = ()
@@ -1378,6 +1382,7 @@ class TextWidget(BoxWidget):
         tp, ts = self._text_prefix(), self._text_suffix()
         ps[0] += (1 if isinstance(tp, int) else len(tp))
         ps[0] += (1 if isinstance(ts, int) else len(ts))
+        if self._extra_col: ps[0] += 1
         self._prefsize = tuple(ps)
         self.invalidate_layout()
 
@@ -1488,8 +1493,9 @@ class EntryBox(TextWidget):
         self.multiline = kwds.get('multiline', False)
         self.backspace_hack = kwds.get('backspace_hack', True)
         self.callback = callback
+        self._extra_col = True
         self.focused = False
-        self.cur_pos = 0
+        self._curpos = [0, 0, 0]
         self.attr = self.attr_normal
     def event(self, event):
         ret = TextWidget.event(self, event)
@@ -1507,28 +1513,49 @@ class EntryBox(TextWidget):
             return True
         elif (event[0] == _curses.KEY_BACKSPACE or
                 self.backspace_hack and event[0] == 127):
-            if self.cur_pos:
+            if self.curpos[2]:
                 self.edit(delete=(-1, 0), adjust=-1, rel=True)
                 return True
         elif event[0] == _curses.KEY_DC:
-            if self.cur_pos < len(st):
+            if self.curpos[2] < len(st):
                 self.edit(delete=(0, 1), rel=True)
                 return True
+        elif event[0] == _curses.KEY_UP:
+            if self.curpos[1]:
+                self.edit(moveto=(0, -1), rel=True)
+                return True
+        elif event[0] == _curses.KEY_DOWN:
+            if self.curpos[1] < len(self._lines) - 1:
+                self.edit(moveto=(0, 1), rel=True)
+                return True
         elif event[0] == _curses.KEY_LEFT:
-            if self.cur_pos:
+            if self.curpos[2]:
                 self.edit(adjust=-1)
                 return True
         elif event[0] == _curses.KEY_RIGHT:
-            if self.cur_pos < len(st):
+            if self.curpos[2] < len(st):
                 self.edit(adjust=1)
                 return True
         elif event[0] == _curses.KEY_HOME:
-            self.edit(moveto=0)
-            return True
+            scp = self.curpos
+            if scp[0] != 0:
+                self.edit(moveto=(0, self.curpos[1]))
+                return True
         elif event[0] == _curses.KEY_END:
-            self.edit(moveto=len(self.text))
-            return True
-        elif isinstance(event[0], int) and event[0] < 256:
+            scp = self.curpos
+            lcl = len(self._lines[scp[1]])
+            if scp[1] != lcl:
+                self.edit(moveto=(lcl, scp[1]))
+                return True
+        elif event[0] == 1: # Ctrl-A
+            if self.curpos[2]:
+                self.edit(moveto=0)
+                return True
+        elif event[0] == 5: # Ctrl-E
+            if self.curpos[2] != len(self._text):
+                self.edit(moveto=len(self._text))
+                return True
+        elif isinstance(event[0], int) and event[0] >= 32 and event[0] < 256:
             self.insert(chr(event[0]))
             return True
         return ret
@@ -1539,81 +1566,114 @@ class EntryBox(TextWidget):
         self.focused = state
         self.on_focuschange()
         self.invalidate()
-    def _update_curpos(self):
+    def _update_curpos(self, first=False):
         if self.focused:
-            self.grab_input(self.rect, addpos(self.pos, self.cur_coords()))
+            x, y = self.curpos[:2]
+            x += self._indents[y]
+            y += self._vindent
+            if self.border:
+                x += 1
+                y += 1
+            cpos = addpos(self.pos, (x, y))
+            if first:
+                rect = self.rect
+            else:
+                rect = (cpos[0], cpos[1], 1, 1)
+            self.grab_input(rect, cpos)
     def on_focuschange(self):
         self.attr = (self.attr_active if self.focused else self.attr_normal)
-        self._update_curpos()
+        self._update_curpos(True)
     def on_activate(self):
         if self.callback is not None:
             self.callback()
-    def _calc_curpos(self, value):
-        if isinstance(value, int):
-            if value < 0:
-                value = len(self._text) - value
-            value = max(0, min(value, len(self._text)))
-            x, y = value, 0
-            for l in self._lines:
-                if x <= len(l): break
-                x -= len(l) + 1
-                y += 1
-            return (x, y, value)
-        else:
-            if len(value) == 3:
-                x, y, test = value
-                do_test = True
+    def _calc_curpos(self, value, rel=False, xy=True):
+        if rel:
+            scp = self.curpos
+            if not self._text:
+                return (0, 0, 0)
+            elif isinstance(value, int):
+                ni = zbound(scp[2] + value, len(self._text))
+                return self._calc_curpos(ni, xy=xy)
+            elif len(value) == 3:
+                dx, dy, di = value
+                ni = zbound(scp[2] + di, len(self._text))
+                ny = zbound(scp[1] + dy, len(self._lines) - 1)
+                nx = zbound(scp[0] + dx, len(self._lines[ny]))
+                return self._calc_curpos((nx, ny, ni), xy=xy)
             else:
-                x, y = value
-                do_test = False
-            if y < 0:
-                y = len(self._lines) - y
-            y = max(0, min(y, len(self._line)))
-            idx = 0
-            for l in self._lines:
-                ll = len(l)
-                if y > 0:
+                dx, dy = value
+                ny = zbound(scp[1] + dy, len(self._lines) - 1)
+                nx = zbound(scp[0] + dx, len(self._lines[ny]))
+                return self._calc_curpos((nx, ny), xy=xy)
+        else:
+            if isinstance(value, int):
+                if value < 0:
+                    value = len(self._text) - value
+                value = zbound(value, len(self._text))
+                if not xy:
+                    return (None, None, value)
+                x, y = value, 0
+                for l in self._lines:
+                    if x <= len(l): break
+                    x -= len(l) + 1
+                    y += 1
+                return (x, y, value)
+            else:
+                if len(value) == 3:
+                    x, y, test = value
+                    do_test = True
+                else:
+                    x, y = value
+                    do_test = False
+                if y < 0:
+                    y = len(self._lines) - y
+                y = zbound(y, len(self._lines) - 1)
+                idx = 0
+                for n, l in enumerate(self._lines):
+                    ll = len(l)
+                    if n == y:
+                        if x < 0:
+                            x = ll - x
+                        x = zbound(x, ll)
+                        idx += x
+                        break
                     idx += ll + 1
-                    continue
-                if x < 0:
-                    x = ll - x
-                x = max(0, min(x, ll))
-                idx += x
-                break
-            if do_test and idx != test:
-                raise ValueError('Invalid cursor position')
-            return (x, y, idx)
-    def cur_coords(self, p=None):
-        if p is None: p = self.cur_pos
-        x, y = self._calc_curpos(p)[:2]
-        x += self._indents[y]
-        y += self._vindent
-        if self.border:
-            x += 1
-            y += 1
-        return (x, y)
+                if do_test and idx != test:
+                    raise ValueError('Invalid cursor position')
+                return (x, y, idx)
     def edit(self, delete=None, moveto=None, insert=None, adjust=None,
              rel=False):
-        cp = self.cur_pos
-        if rel:
-            if delete: delete = (delete[0] + cp, delete[1] + cp)
-            if moveto: moveto += cp
-        st = self.text
+        st, invalid = self.text, False
         if delete is not None:
-            st = st[:max(delete[0], 0)] + st[max(delete[1], 0):]
+            fromval, toval = delete
+            fromidx = self._calc_curpos(fromval, rel, True)[2]
+            toidx = self._calc_curpos(toval, rel, True)[2]
+            invalid |= (fromidx != toidx)
+            st = st[:fromidx] + st[toidx:]
+            self.text = st
         if moveto is not None:
-            self.cur_pos = max(0, min(moveto, len(st)))
+            self._curpos[:] = self._calc_curpos(moveto, rel)
         if insert is not None:
-            st = st[:self.cur_pos] + insert + st[self.cur_pos:]
+            cp = self._curpos[2]
+            st = st[:cp] + insert + st[cp:]
+            invalid |= bool(insert)
+            self.text = st
         if adjust:
-            self.cur_pos += adjust
-        self.cur_pos = max(0, min(self.cur_pos, len(st)))
-        self.text = st
+            self.curpos = self.curpos[2] + adjust
         self._update_indents()
         self._update_curpos()
-        self.invalidate_layout()
+        if invalid:
+            self.invalidate_layout()
+        else:
+            self.invalidate()
     def insert(self, text, moveto=None):
         self.edit(moveto=moveto, insert=text, adjust=len(text))
+    @property
+    def curpos(self):
+        return tuple(self._curpos)
+    @curpos.setter
+    def curpos(self, value):
+        self._curpos[:] = self._calc_curpos(value)
 
 class BaseStrut(Widget):
     class Direction(Singleton): pass
@@ -1903,9 +1963,10 @@ def mainloop(scr):
                          text_back_changer, align=ALIGN_CENTER,
                          background=_curses.color_pair(3), border=0),
                   weight=1)
-    entr = c2.add(EntryBox(border=True, multiline=True,
-                           attr_normal=_curses.color_pair(1)))
     s2 = c2.add(Strut(Strut.DIR_HORIZONTAL, attr=_curses.color_pair(2)))
+    tvp = c2.add(Viewport(cmaxsize=(60, 20)))
+    entr = tvp.add(EntryBox(border=True, multiline=True,
+                            attr_normal=_curses.color_pair(1)))
     vpc = c2.add(MarginContainer(border=1,
                                  background=_curses.color_pair(2)))
     vpt = vpc.add(AlignContainer(align=ALIGN_LEFT),
