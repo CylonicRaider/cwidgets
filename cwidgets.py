@@ -703,6 +703,8 @@ class Viewport(SingleContainer, Scrollable):
         else:
             effpos = subpos(self.pos, self.scrollpos)
         if pos is not None:
+            pos = (zbound(pos[0], self.padsize[0] - 1),
+                   zbound(pos[1], self.padsize[1] - 1))
             pos = addpos(effpos, pos)
         SingleContainer.grab_input(self, rect, pos, child, full)
     def invalidate(self, rec=False, child=None):
