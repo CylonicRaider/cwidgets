@@ -3,6 +3,7 @@
 
 # *** Minimalistic curses-based widget library for Python ***
 
+import time as _time
 import curses as _curses
 
 _KEY_RETURN = ord('\n')
@@ -255,19 +256,28 @@ class WidgetRoot(object):
         if widget is self.widget:
             self.widget = None
             widget.parent = None
+    def _process_input(self, ch):
+        if ch == _curses.KEY_RESIZE:
+            self.invalidate_layout()
+        elif ch == _curses.KEY_MOUSE:
+            self.event((ch, _curses.getmouse()))
+        else:
+            self.event((ch,))
     def main(self):
         while 1:
             if not self.valid_layout:
                 self.make()
             if not self.valid_display:
                 self.redraw()
+            last_update = _time.time()
             ch = self.window.getch()
-            if ch == _curses.KEY_RESIZE:
-                self.invalidate_layout()
-            elif ch == _curses.KEY_MOUSE:
-                self.event((ch, _curses.getmouse()))
-            else:
-                self.event((ch,))
+            self._process_input(ch)
+            self.window.nodelay(1)
+            while _time.time() - last_update < 0.1:
+                ch = self.window.getch()
+                if ch == -1: break
+                self._process_input(ch)
+            self.window.nodelay(0)
 
 class Widget(object):
     def __init__(self, **kwds):
@@ -1499,6 +1509,9 @@ class EntryBox(TextWidget):
         self.focused = False
         self._curpos = [0, 0, 0]
         self.attr = self.attr_normal
+    def make(self):
+        TextWidget.make(self)
+        self._update_curpos()
     def event(self, event):
         ret = TextWidget.event(self, event)
         st = self.text
@@ -1576,6 +1589,8 @@ class EntryBox(TextWidget):
             if self.border:
                 x += 1
                 y += 1
+            if x >= self.size[0]: x = self.size[0] - 1
+            if y >= self.size[1]: y = self.size[1] - 1
             cpos = addpos(self.pos, (x, y))
             if first:
                 rect = self.rect
@@ -1967,7 +1982,7 @@ def mainloop(scr):
                   weight=1)
     s2 = c2.add(Strut(Strut.DIR_HORIZONTAL, attr=_curses.color_pair(2)))
     tvp = c2.add(Viewport(cmaxsize=(60, 20)))
-    entr = tvp.add(EntryBox(border=True, multiline=True,
+    entr = tvp.add(EntryBox(multiline=True,
                             attr_normal=_curses.color_pair(1)))
     vpc = c2.add(MarginContainer(border=1,
                                  background=_curses.color_pair(2)))
