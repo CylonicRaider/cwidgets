@@ -1548,18 +1548,45 @@ class EntryBox(TextWidget):
     def on_activate(self):
         if self.callback is not None:
             self.callback()
+    def _calc_curpos(self, value):
+        if isinstance(value, int):
+            if value < 0:
+                value = len(self._text) - value
+            value = max(0, min(value, len(self._text)))
+            x, y = value, 0
+            for l in self._lines:
+                if x <= len(l): break
+                x -= len(l) + 1
+                y += 1
+            return (x, y, value)
+        else:
+            if len(value) == 3:
+                x, y, test = value
+                do_test = True
+            else:
+                x, y = value
+                do_test = False
+            if y < 0:
+                y = len(self._lines) - y
+            y = max(0, min(y, len(self._line)))
+            idx = 0
+            for l in self._lines:
+                ll = len(l)
+                if y > 0:
+                    idx += ll + 1
+                    continue
+                if x < 0:
+                    x = ll - x
+                x = max(0, min(x, ll))
+                idx += x
+                break
+            if do_test and idx != test:
+                raise ValueError('Invalid cursor position')
+            return (x, y, idx)
     def cur_coords(self, p=None):
         if p is None: p = self.cur_pos
-        if p >= len(self._text): p = len(self._text)
-        x, y = p, 0
-        for l in self._lines:
-            if x <= len(l): break
-            x -= len(l) + 1
-            y += 1
-        try:
-            x += self._indents[y]
-        except IndexError:
-            raise SystemExit(repr((self._indents, x, y)))
+        x, y = self._calc_curpos(p)[:2]
+        x += self._indents[y]
         y += self._vindent
         if self.border:
             x += 1
