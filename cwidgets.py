@@ -1981,14 +1981,27 @@ def mainloop(scr):
                          background=_curses.color_pair(3), border=0),
                   weight=1)
     s2 = c2.add(Strut(Strut.DIR_HORIZONTAL, attr=_curses.color_pair(2)))
-    tvp = c2.add(Viewport(cmaxsize=(60, 20)))
+    tvc = c2.add(MarginContainer(border=1,
+                                 background=_curses.color_pair(2)))
+    tvph = tvc.add(AlignContainer(align=ALIGN_LEFT),
+                   slot=MarginContainer.POS_TOP)
+    tvpl = tvph.add(Label('entry test', tees=True,
+                          attr=_curses.color_pair(2)))
+    tvp = tvc.add(Viewport(cmaxsize=(60, 20)))
     entr = tvp.add(EntryBox(multiline=True,
                             attr_normal=_curses.color_pair(1)))
+    tvv = tvc.add(tvp.bind(Scrollbar(Scrollbar.DIR_VERTICAL,
+                                     attr_highlight=_curses.color_pair(5))),
+                  slot=MarginContainer.POS_RIGHT)
+    tvh = tvc.add(tvp.bind(Scrollbar(Scrollbar.DIR_HORIZONTAL,
+                                     attr_highlight=_curses.color_pair(5))),
+                  slot=MarginContainer.POS_BOTTOM)
     vpc = c2.add(MarginContainer(border=1,
                                  background=_curses.color_pair(2)))
     vpt = vpc.add(AlignContainer(align=ALIGN_LEFT),
                   slot=MarginContainer.POS_TOP)
-    vpt.add(Label('scrolling test', tees=True, attr=_curses.color_pair(2)))
+    vptl = vpt.add(Label('scrolling test', tees=True,
+                         attr=_curses.color_pair(2)))
     vp = vpc.add(Viewport(background=_curses.color_pair(1),
                           cmaxsize=(60, 20)), weight=1)
     sbv = vpc.add(vp.bind(Scrollbar(Scrollbar.DIR_VERTICAL,
