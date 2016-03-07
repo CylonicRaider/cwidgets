@@ -1537,11 +1537,11 @@ class EntryBox(TextWidget):
                 return True
         elif event[0] == _curses.KEY_UP:
             if self.curpos[1]:
-                self.edit(moveto=(0, -1), rel=True)
+                self.edit(adjust=(0, -1))
                 return True
         elif event[0] == _curses.KEY_DOWN:
             if self.curpos[1] < len(self._lines) - 1:
-                self.edit(moveto=(0, 1), rel=True)
+                self.edit(adjust=(0, 1))
                 return True
         elif event[0] == _curses.KEY_LEFT:
             if self.curpos[2]:
@@ -1561,6 +1561,16 @@ class EntryBox(TextWidget):
             lcl = len(self._lines[scp[1]])
             if scp[1] != lcl:
                 self.edit(moveto=(lcl, scp[1]))
+                return True
+        elif event[0] == _curses.KEY_PPAGE:
+            scp = self.curpos
+            if scp[1] > 0:
+                self.edit(adjust=(0, -10))
+                return True
+        elif event[0] == _curses.KEY_NPAGE:
+            scp = self.curpos
+            if scp[1] < len(self._lines) - 1:
+                self.edit(adjust=(0, 10))
                 return True
         elif event[0] == 1: # Ctrl-A
             if self.curpos[2]:
@@ -1676,7 +1686,7 @@ class EntryBox(TextWidget):
             invalid |= bool(insert)
             self.text = st
         if adjust:
-            self.curpos = self.curpos[2] + adjust
+            self.curpos = self._calc_curpos(adjust, rel=True)
         self._update_indents()
         self._update_curpos()
         if invalid:
