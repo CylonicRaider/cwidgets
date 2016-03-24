@@ -26,6 +26,10 @@ def shiftrect(r, p):
     return (r[0] + p[0], r[1] + p[1], r[2], r[3])
 def unshiftrect(r, p):
     return (r[0] - p[0], r[1] - p[1], r[2], r[3])
+def boundrect(r, b):
+    if r[0] < b[0]: r = (b[0], r[1], r[2] - b[0] + r[0], r[3])
+    if r[1] < b[1]: r = (r[0], b[1], r[2], r[3] - b[1] + r[1])
+    return (r[0], r[1], zbound(r[2], b[2]), zbound(r[3], b[3]))
 
 def linear_distrib(full, amnt):
     if full == 0:
@@ -615,13 +619,14 @@ class AlignContainer(VisibilityContainer):
 
 class Viewport(SingleContainer, Scrollable):
     @classmethod
-    def calc_shift(cls, offset, size, rect):
+    def calc_shift(cls, offset, maxoffs, size, rect):
         ret = list(offset)
         br = subpos(addpos(rect[:2], rect[2:]), size)
         if ret[0] < br[0]: ret[0] = br[0]
         if ret[1] < br[1]: ret[1] = br[1]
         if ret[0] > rect[0]: ret[0] = rect[0]
         if ret[1] > rect[1]: ret[1] = rect[1]
+        ret[:] = (zbound(ret[0], maxoffs[0]), zbound(ret[1], maxoffs[1]))
         return ret
     def __init__(self, **kwds):
         SingleContainer.__init__(self, **kwds)
@@ -660,7 +665,9 @@ class Viewport(SingleContainer, Scrollable):
             self.maxscrollpos = (0, 0)
             self.childsize = (0, 0)
         oldpos = tuple(self.scrollpos)
-        self.scrollpos[:] = minpos(self.scrollpos, self.maxscrollpos)
+        self.scrollpos[:] = (
+            zbound(self.scrollpos[0], self.maxscrollpos[0]),
+            zbound(self.scrollpos[1], self.maxscrollpos[1]))
         self.on_scroll(oldpos)
     def draw(self, win):
         if self.valid_display: return
@@ -701,15 +708,18 @@ class Viewport(SingleContainer, Scrollable):
     def grab_input(self, rect, pos=None, child=None, full=False):
         if rect is not None:
             oldpos = tuple(self.scrollpos)
-            new_offset = self.calc_shift(oldpos, self.size, rect)
+            new_offset = self.calc_shift(oldpos, self.maxscrollpos,
+                                         self.size, rect)
             if pos is not None:
-                new_offset = self.calc_shift(new_offset, self.size,
-                                             (pos[0], pos[1], 1, 1))
+                new_offset = self.calc_shift(new_offset, self.maxscrollpos,
+                    self.size, (pos[0], pos[1], 1, 1))
             self.scrollpos[:] = new_offset
             if new_offset[0] != oldpos[0] or new_offset[1] != oldpos[1]:
                 self.on_scroll(oldpos)
             effpos = subpos(self.pos, new_offset)
             rect = shiftrect(rect, effpos)
+            # Constrain rect to own bounds.
+            rect = boundrect(rect, self.rect)
         else:
             effpos = subpos(self.pos, self.scrollpos)
         if pos is not None:
