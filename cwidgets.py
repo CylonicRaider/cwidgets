@@ -1930,6 +1930,10 @@ class RadioGroup(BaseRadioGroup):
         if not value: return
         self._set_active(widget)
 
+def init():
+    import locale
+    locale.setlocale(locale.LC_ALL, '')
+
 def mainloop(scr):
     class DebugStrut(Widget):
         def __init__(self, **kwds):
@@ -2055,6 +2059,7 @@ def mainloop(scr):
 
 def main():
     #try:
+        init()
         _curses.wrapper(mainloop)
     #finally:
     #    if LOG:
