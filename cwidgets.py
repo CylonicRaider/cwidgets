@@ -1851,7 +1851,7 @@ class Scrollbar(BaseStrut):
             sw.addch(0, 0, _curses.ACS_LARROW)
             sw.insch(0, self.size[0] - 1, _curses.ACS_RARROW)
     def event(self, event):
-        ret = TextWidget.event(self, event)
+        ret = BaseStrut.event(self, event)
         if event[0] == FocusEvent:
             self._set_focused(event[1])
         if not ret and self.bound:
