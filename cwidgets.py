@@ -3,14 +3,24 @@
 
 # *** Minimalistic curses-based widget library for Python ***
 
+import sys as _sys
 import time as _time
 import curses as _curses
+import codecs as _codecs
 
+_ENCODING = None
 _KEY_RETURN = ord('\n')
 _KEY_TAB = ord('\t')
 _KEY_SPACE = ord(' ')
 
 #LOG = []
+
+if _sys.version_info[0] <= 2:
+    _bchr = chr
+    _unicode = unicode
+else:
+    _bchr = lambda x: bytes([x])
+    _unicode = str
 
 def zbound(v, m):
     return max(0, min(v, m))
@@ -201,6 +211,13 @@ class WidgetRoot(object):
         self._cursorpos = None
         self.valid_display = False
         self.valid_layout = False
+        self._init_decoder()
+    def _init_decoder(self):
+        if _ENCODING:
+            f = _codecs.getincrementaldecoder(_ENCODING)
+            self._decoder = f(errors='replace')
+        else:
+            self._decoder = None
     def make(self):
         if not self.widget is None:
             hw = self.window.getmaxyx()
@@ -265,6 +282,12 @@ class WidgetRoot(object):
             self.invalidate_layout()
         elif ch == _curses.KEY_MOUSE:
             self.event((ch, _curses.getmouse()))
+        elif isinstance(ch, int) and ch >= 32 and ch < 256:
+            if self._decoder:
+                res = self._decoder.decode(_bchr(ch))
+                if res: self.event((res,))
+            else:
+                self.event((ch,))
         else:
             self.event((ch,))
     def main(self):
@@ -1374,8 +1397,12 @@ class TextWidget(BoxWidget):
             self.draw_box(win, (x + i, y + i), (w, h),
                           self.textbg, self.textbgch, False)
         y += self._vindent
+        if _ENCODING is None:
+            enc = lambda x: x
+        else:
+            enc = lambda x: x.encode(_ENCODING)
         for d, l in zip(self._indents[:h], self._lines[:h]):
-            win.addnstr(y + i, x + i + d, l, w, self.attr)
+            win.addnstr(y + i, x + i + d, enc(l), w, self.attr)
             y += 1
         func = (win.addch if isinstance(pref, int) else win.addstr)
         func(self.pos[1] + i, self.pos[0] + i, pref, self.attr)
@@ -1590,8 +1617,8 @@ class EntryBox(TextWidget):
             if self.curpos[2] != len(self._text):
                 self.edit(moveto=len(self._text))
                 return True
-        elif isinstance(event[0], int) and event[0] >= 32 and event[0] < 256:
-            self.insert(chr(event[0]))
+        elif isinstance(event[0], _unicode):
+            self.insert(event[0])
             return True
         return ret
     def focus(self, rev=False):
@@ -1931,8 +1958,10 @@ class RadioGroup(BaseRadioGroup):
         self._set_active(widget)
 
 def init():
+    global _ENCODING
     import locale
     locale.setlocale(locale.LC_ALL, '')
+    _ENCODING = locale.getpreferredencoding(True)
 
 def mainloop(scr):
     class DebugStrut(Widget):
