@@ -142,9 +142,9 @@ ALIGN_CENTER = Alignment(0.5, 'ALIGN_CENTER')
 ALIGN_RIGHT = Alignment(1.0, 'ALIGN_RIGHT')
 ALIGN_BOTTOM = Alignment(1.0, 'ALIGN_BOTTOM')
 
-class Scalement(NumericSingleton): pass
-SCALE_COMPRESS = Scalement(0.0, 'SCALE_COMPRESS')
-SCALE_STRETCH = Scalement(1.0, 'SCALE_STRETCH')
+class Scaling(NumericSingleton): pass
+SCALE_COMPRESS = Scaling(0.0, 'SCALE_COMPRESS')
+SCALE_STRETCH = Scaling(1.0, 'SCALE_STRETCH')
 
 class Scrollable:
     def __init__(self):
