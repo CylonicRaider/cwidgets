@@ -1347,22 +1347,26 @@ class BoxWidget(Widget):
         self.draw_box(win, self.pos, self.size, self.background,
                       self.background_ch, self.border)
 
-class TextWidget(BoxWidget):
+class TextWidget(BoxWidget, Scrollable):
     def __init__(self, text='', **kwds):
         BoxWidget.__init__(self, **kwds)
+        Scrollable.__init__(self)
         self.attr = kwds.get('attr', 0)
         self.textbg = kwds.get('textbg', Ellipsis)
         self.textbgch = kwds.get('textbgch', '\0')
         self.align = parse_pair(kwds.get('align'), (ALIGN_LEFT, ALIGN_TOP))
+        self.rigid = kwds.get('rigid', True)
         self._extra_col = False
         self._text = None
         self._lines = ()
         self._indents = ()
         self._vindent = 0
         self._prefsize = (0, 0)
+        self.childsize = (0, 0)
         self.text = text
     def getprefsize(self):
-        return maxpos(self.minsize, self._prefsize)
+        return (maxpos(self.minsize, self._prefsize) if self.rigid else
+                self.minsize)
     def _update_indents(self):
         i = (1 if self.border else 0)
         tp, ts = self._text_prefix(), self._text_suffix()
@@ -1376,6 +1380,8 @@ class TextWidget(BoxWidget):
     def make(self):
         BoxWidget.make(self)
         self._update_indents()
+        self.maxscrollpos = subpos(self._prefsize, self.size)
+        self.childsize = maxpos(self._prefsize, self.size)
     def draw(self, win):
         if self.valid_display: return
         BoxWidget.draw(self, win)
@@ -1401,8 +1407,9 @@ class TextWidget(BoxWidget):
             enc = lambda x: x
         else:
             enc = lambda x: x.encode(_ENCODING)
-        for d, l in zip(self._indents[:h], self._lines[:h]):
-            win.addnstr(y + i, x + i + d, enc(l), w, self.attr)
+        sx, sy = self.scrollpos
+        for d, l in zip(self._indents[sy:sy+h], self._lines[sy:sy+h]):
+            win.addnstr(y + i, x + i + d, enc(l[sx:]), w, self.attr)
             y += 1
         func = (win.addch if isinstance(pref, int) else win.addstr)
         func(self.pos[1] + i, self.pos[0] + i, pref, self.attr)
@@ -1602,12 +1609,12 @@ class EntryBox(TextWidget):
         elif event[0] == _curses.KEY_PPAGE:
             scp = self.curpos
             if scp[1] > 0:
-                self.edit(adjust=(0, -10))
+                self.edit(adjust=(0, -self.size[1]))
                 return True
         elif event[0] == _curses.KEY_NPAGE:
             scp = self.curpos
             if scp[1] < len(self._lines) - 1:
-                self.edit(adjust=(0, 10))
+                self.edit(adjust=(0, self.size[1]))
                 return True
         elif event[0] == 1: # Ctrl-A
             if self.curpos[2]:
@@ -1636,9 +1643,25 @@ class EntryBox(TextWidget):
             if self.border:
                 x += 1
                 y += 1
-            if x >= self.size[0]: x = self.size[0] - 1
-            if y >= self.size[1]: y = self.size[1] - 1
-            cpos = addpos(self.pos, (x, y))
+            if x >= self._prefsize[0]:
+                x = self._prefsize[0] - 1
+            if y >= self._prefsize[1]:
+                y = self._prefsize[1] - 1
+            nsp = list(self.scrollpos)
+            if x < nsp[0]:
+                nsp[0] = x
+            elif x - self.size[0] + 1 >= nsp[0]:
+                nsp[0] = x - self.size[0] + 1
+            if y < nsp[1]:
+                nsp[1] = y
+            elif y - self.size[1] + 1 >= nsp[1]:
+                nsp[1] = y - self.size[1] + 1
+            if x < 0:
+                x = 0
+            if y < 0:
+                y = 0
+            self.scroll(nsp)
+            cpos = addpos(self.pos, subpos((x, y), self.scrollpos))
             if first:
                 rect = self.rect
             else:
@@ -2040,14 +2063,13 @@ def mainloop(scr):
                    slot=MarginContainer.POS_TOP)
     tvpl = tvph.add(Label('entry test', tees=True,
                           attr=_curses.color_pair(2)))
-    tvp = tvc.add(Viewport(cmaxsize=(60, 20)))
-    entr = tvp.add(EntryBox(multiline=True,
+    entr = tvc.add(EntryBox(multiline=True, rigid=False,
                             attr_normal=_curses.color_pair(1)))
-    tvv = tvc.add(tvp.bind(Scrollbar(Scrollbar.DIR_VERTICAL,
-                                     attr_highlight=_curses.color_pair(5))),
+    tvv = tvc.add(entr.bind(Scrollbar(Scrollbar.DIR_VERTICAL,
+                                      attr_highlight=_curses.color_pair(5))),
                   slot=MarginContainer.POS_RIGHT)
-    tvh = tvc.add(tvp.bind(Scrollbar(Scrollbar.DIR_HORIZONTAL,
-                                     attr_highlight=_curses.color_pair(5))),
+    tvh = tvc.add(entr.bind(Scrollbar(Scrollbar.DIR_HORIZONTAL,
+                                      attr_highlight=_curses.color_pair(5))),
                   slot=MarginContainer.POS_BOTTOM)
     vpc = c2.add(MarginContainer(border=1,
                                  background=_curses.color_pair(2)))
