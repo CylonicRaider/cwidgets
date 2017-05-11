@@ -1355,7 +1355,7 @@ class TextWidget(BoxWidget, Scrollable):
         self.textbg = kwds.get('textbg', Ellipsis)
         self.textbgch = kwds.get('textbgch', '\0')
         self.align = parse_pair(kwds.get('align'), (ALIGN_LEFT, ALIGN_TOP))
-        self.rigid = kwds.get('rigid', True)
+        self.cmaxsize = parse_pair(kwds.get('cmaxsize'))
         self._extra_col = False
         self._text = None
         self._lines = ()
@@ -1365,8 +1365,9 @@ class TextWidget(BoxWidget, Scrollable):
         self.childsize = (0, 0)
         self.text = text
     def getprefsize(self):
-        return (maxpos(self.minsize, self._prefsize) if self.rigid else
-                self.minsize)
+        ps, cm = self._prefsize, self.cmaxsize
+        return (ps[0] if cm[0] is None else min(ps[0], cm[0]),
+                ps[1] if cm[1] is None else min(ps[1], cm[1]))
     def _update_indents(self):
         i = (1 if self.border else 0)
         tp, ts = self._text_prefix(), self._text_suffix()
@@ -2063,7 +2064,7 @@ def mainloop(scr):
                    slot=MarginContainer.POS_TOP)
     tvpl = tvph.add(Label('entry test', tees=True,
                           attr=_curses.color_pair(2)))
-    entr = tvc.add(EntryBox(multiline=True, rigid=False,
+    entr = tvc.add(EntryBox(multiline=True, cmaxsize=(60, 20),
                             attr_normal=_curses.color_pair(1)))
     tvv = tvc.add(entr.bind(Scrollbar(Scrollbar.DIR_VERTICAL,
                                       attr_highlight=_curses.color_pair(5))),
