@@ -1472,16 +1472,7 @@ class TextWidget(BoxWidget, Scrollable):
         self._prefsize = tuple(ps)
         self.invalidate_layout()
 
-class Label(TextWidget):
-    def __init__(self, text='', **kwds):
-        TextWidget.__init__(self, text, **kwds)
-        tees = kwds.get('tees', False)
-        self.tee_before = kwds.get('tee_before', tees)
-        self.tee_after = kwds.get('tee_after', tees)
-    #def _text_prefix(self):
-    #    return ((_curses.ACS_RTEE if self.tee_before else ''), '')
-    #def _text_suffix(self):
-    #    return ('', (_curses.ACS_LTEE if self.tee_after else ''))
+class Label(TextWidget): pass
 
 class Button(TextWidget):
     def __init__(self, text='', callback=None, **kwds):
