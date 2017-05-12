@@ -1356,14 +1356,15 @@ class TextWidget(BoxWidget, Scrollable):
         self.align = parse_pair(kwds.get('align'), (ALIGN_LEFT, ALIGN_TOP))
         self.cmaxsize = parse_pair(kwds.get('cmaxsize'))
         self._extra_col = False
-        self._text = None
-        self._lines = ()
-        self._indents = ()
-        self._vindent = 0
-        self._prefsize = (0, 0)
+        self._text = text
+        self._lines = None
+        self._indents = None
+        self._vindent = None
+        self._prefsize = None
         self.childsize = (0, 0)
-        self.text = text
     def getprefsize(self):
+        # Force calculation of the relevant values.
+        self.text = self._text
         ps, cm = self._prefsize, self.cmaxsize
         return (ps[0] if cm[0] is None else min(ps[0], cm[0]),
                 ps[1] if cm[1] is None else min(ps[1], cm[1]))
@@ -1426,7 +1427,7 @@ class TextWidget(BoxWidget, Scrollable):
         return self._text
     @text.setter
     def text(self, text):
-        if text == self._text: return
+        if text == self._text and self._lines is not None: return
         self._text = text
         self._lines = text.split('\n')
         ps = [0, 0]
@@ -1444,10 +1445,10 @@ class TextWidget(BoxWidget, Scrollable):
 
 class Label(TextWidget):
     def __init__(self, text='', **kwds):
+        TextWidget.__init__(self, text, **kwds)
         tees = kwds.get('tees', False)
         self.tee_before = kwds.get('tee_before', tees)
         self.tee_after = kwds.get('tee_after', tees)
-        TextWidget.__init__(self, text, **kwds)
     def _text_prefix(self):
         return (_curses.ACS_RTEE if self.tee_before else '')
     def _text_suffix(self):
