@@ -11,7 +11,6 @@ import codecs as _codecs
 _ENCODING = None
 _KEY_RETURN = ord('\n')
 _KEY_TAB = ord('\t')
-_KEY_SPACE = ord(' ')
 
 #LOG = []
 
@@ -1464,7 +1463,7 @@ class Button(TextWidget):
         self.focused = False
     def event(self, event):
         ret = TextWidget.event(self, event)
-        if event[0] in (_KEY_RETURN, _KEY_SPACE):
+        if event[0] in (_KEY_RETURN, ' '):
             self.on_activate()
             return True
         elif event[0] == FocusEvent:
@@ -2046,7 +2045,7 @@ def mainloop(scr):
     lo = box.add(HorizontalContainer())
     c1 = lo.add(VerticalContainer())
     btnt = c1.add(Button('test', text_changer))
-    rdb1 = c1.add(grp.add(RadioBox('NOP')))
+    rdb1 = c1.add(CheckBox('NOP'))
     spc1 = c1.add(Widget(), weight=1)
     btne = c1.add(Button('exit', sys.exit,
                          attr_normal=_curses.color_pair(3)))
