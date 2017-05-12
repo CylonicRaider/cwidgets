@@ -514,6 +514,11 @@ class VisibilityContainer(SingleContainer):
     def __init__(self, **kwds):
         SingleContainer.__init__(self, **kwds)
         self.visibility = kwds.get('visibility', self.VIS_VISIBLE)
+    def getminsize(self):
+        if self.visibility == self.VIS_COLLAPSE:
+            return (0, 0)
+        else:
+            return SingleContainer.getminsize(self)
     def getprefsize(self):
         if self.visibility == self.VIS_COLLAPSE:
             return (0, 0)
@@ -608,26 +613,6 @@ class BoxContainer(VisibilityContainer):
         self._box_rect = None
         self._widget_rect = None
 
-class TeeContainer(SingleContainer):
-    def __init__(self, **kwds):
-        SingleContainer.__init__(self, **kwds)
-        self.chars = parse_pair(kwds.get('tees',
-            (_curses.ACS_RTEE, _curses.ACS_LTEE)))
-        self.attrs = parse_pair(kwds.get('attrs', 0))
-    def getprefsize(self):
-        cps = self._child_prefsize()
-        return (cps[0] + 2, cps[1])
-    def relayout(self):
-        if self.children:
-            self.children[0].pos = (self.pos[0] + 1, self.pos[1])
-            self.children[0].size = (self.size[0] - 2, self.size[1])
-    def draw(self, win):
-        win.addch(self.pos[1], self.pos[0], self.chars[0],
-                  self.attrs[0])
-        win.addch(self.pos[1], self.pos[0] + self.size[0] - 1,
-                  self.chars[1], self.attrs[1])
-        SingleContainer.draw(self, win)
-
 class AlignContainer(VisibilityContainer):
     @classmethod
     def calc_wbox_1d(cls, pref, avl, scale, align):
@@ -646,18 +631,44 @@ class AlignContainer(VisibilityContainer):
         VisibilityContainer.__init__(self, **kwds)
         self.scale = parse_pair(kwds.get('scale', SCALE_COMPRESS))
         self.align = parse_pair(kwds.get('align', ALIGN_CENTER))
+        self._pads = (0, 0, 0, 0)
         self._wbox = None
+    def getminsize(self):
+        pms, sp = VisibilityContainer.getminsize(self), self._pads
+        return (sp[3] + pms[0] + sp[1], sp[0] + pms[1] + sp[2])
+    def getprefsize(self):
+        pps, sp = VisibilityContainer.getminsize(self), self._pads
+        return (sp[3] + pps[0] + sp[1], sp[0] + pps[1] + sp[2])
     def relayout(self):
+        sp = self._pads
         if self._wbox is None:
-            chps = self._child_prefsize()
+            rchps = self._child_prefsize()
+            chps = (sp[3] + rchps[0] + sp[1], sp[0] + rchps[1] + sp[2])
             self._wbox = self.calc_wbox(chps, self.size, self.scale,
                                         self.align, self.pos)
         if self.children:
-            self.children[0].pos = self._wbox[:2]
-            self.children[0].size = self._wbox[2:]
+            wb = self._wbox
+            self.children[0].pos = (sp[3] + wb[0], sp[0] + wb[1])
+            self.children[0].size = (wb[2] - sp[3] - sp[1],
+                                     wb[3] - sp[0] - sp[2])
     def invalidate_layout(self):
         VisibilityContainer.invalidate_layout(self)
         self._wbox = None
+
+class TeeContainer(AlignContainer):
+    def __init__(self, **kwds):
+        AlignContainer.__init__(self, **kwds)
+        self.tees = parse_pair(kwds.get('tees',
+            (_curses.ACS_RTEE, _curses.ACS_LTEE)))
+        self.attrs = parse_pair(kwds.get('attrs', 0))
+        self._pads = (0, 1, 0, 1)
+    def draw(self, win):
+        win.addch(self._wbox[1], self._wbox[0], self.tees[0],
+                  self.attrs[0])
+        win.addch(self._wbox[1] + self._wbox[3] - 1,
+                  self._wbox[0] + self._wbox[2] - 1,
+                  self.tees[1], self.attrs[1])
+        AlignContainer.draw(self, win)
 
 class Viewport(SingleContainer, Scrollable):
     @classmethod
@@ -2058,9 +2069,9 @@ def mainloop(scr):
                               attr_box=_curses.color_pair(4)))
     box = obx.add(MarginContainer(border=True,
                                   background=_curses.color_pair(2)))
-    top = box.add(AlignContainer(), slot=MarginContainer.POS_TOP)
-    htee = top.add(TeeContainer(attrs=_curses.color_pair(2)))
-    hdr = htee.add(Label('cwidgets test', attr=_curses.color_pair(2)))
+    top = box.add(TeeContainer(attrs=_curses.color_pair(2)),
+                  slot=MarginContainer.POS_TOP)
+    hdr = top.add(Label('cwidgets test', attr=_curses.color_pair(2)))
     lo = box.add(HorizontalContainer())
     c1 = lo.add(VerticalContainer())
     btnt = c1.add(Button('test', text_changer))
@@ -2078,11 +2089,10 @@ def mainloop(scr):
     s2 = c2.add(Strut(Strut.DIR_HORIZONTAL, attr=_curses.color_pair(2)))
     tvc = c2.add(MarginContainer(border=1,
                                  background=_curses.color_pair(2)))
-    tvph = tvc.add(AlignContainer(align=ALIGN_LEFT),
+    tvph = tvc.add(TeeContainer(align=ALIGN_LEFT,
+                                attrs=_curses.color_pair(2)),
                    slot=MarginContainer.POS_TOP)
-    tvpt = tvph.add(TeeContainer(attrs=_curses.color_pair(2)))
-    tvpl = tvpt.add(Label('entry test',
-                          attr=_curses.color_pair(2)))
+    tvpl = tvph.add(Label('entry test', attr=_curses.color_pair(2)))
     entr = tvc.add(EntryBox(multiline=True, cmaxsize=(60, 20),
                             attr_normal=_curses.color_pair(1)))
     tvv = tvc.add(entr.bind(Scrollbar(Scrollbar.DIR_VERTICAL,
@@ -2093,11 +2103,11 @@ def mainloop(scr):
                   slot=MarginContainer.POS_BOTTOM)
     vpc = c2.add(MarginContainer(border=1,
                                  background=_curses.color_pair(2)))
-    vpt = vpc.add(AlignContainer(align=ALIGN_LEFT),
+    vpt = vpc.add(TeeContainer(align=ALIGN_RIGHT,
+                               attrs=_curses.color_pair(2)),
                   slot=MarginContainer.POS_TOP)
-    vptt = vpt.add(TeeContainer(attrs=_curses.color_pair(2)))
-    vptl = vptt.add(Label('scrolling test',
-                          attr=_curses.color_pair(2)))
+    vptl = vpt.add(Label('scrolling test',
+                         attr=_curses.color_pair(2)))
     vp = vpc.add(Viewport(background=_curses.color_pair(1),
                           cmaxsize=(60, 20)), weight=1)
     sbv = vpc.add(vp.bind(Scrollbar(Scrollbar.DIR_VERTICAL,
