@@ -1370,10 +1370,10 @@ class TextWidget(BoxWidget, Scrollable):
                 ps[1] if cm[1] is None else min(ps[1], cm[1]))
     def _update_indents(self):
         i = (1 if self.border else 0)
-        tp, ts = self._text_prefix(), self._text_suffix()
-        ltp = (1 if isinstance(tp, int) else len(tp))
-        lts = (1 if isinstance(ts, int) else len(ts))
-        ew = (self.size[0] - ltp - lts - 2 * i)
+        tp, ctp = self._text_prefix()
+        ts, cts = self._text_suffix()
+        if self._text: tp, ts = tp + ctp, cts + ts
+        ew = self.size[0] - len(tp) - len(ts) - 2 * i
         eh = self.size[1] - 2 * i
         self._indents = tuple(int((ew - len(l)) * self.align[0])
                               for l in self._lines)
@@ -1387,13 +1387,12 @@ class TextWidget(BoxWidget, Scrollable):
         if self.valid_display: return
         BoxWidget.draw(self, win)
         i = (1 if self.border else 0)
-        pref = self._text_prefix()
-        suff = self._text_suffix()
-        ltp = (1 if isinstance(pref, int) else len(pref))
-        lts = (1 if isinstance(suff, int) else len(suff))
+        pref, cpref = self._text_prefix()
+        suff, csuff = self._text_suffix()
+        if self._text: pref, suff = pref + cpref, csuff + suff
         x, y = self.pos
-        x += ltp
-        w = self.size[0] - 2 * i - ltp - lts
+        x += len(pref)
+        w = self.size[0] - 2 * i - len(pref) - len(suff)
         h = self.size[1] - 2 * i
         if self.textbg is None:
             pass
@@ -1412,16 +1411,14 @@ class TextWidget(BoxWidget, Scrollable):
         for d, l in zip(self._indents[sy:sy+h], self._lines[sy:sy+h]):
             win.addnstr(y + i, x + i + d, enc(l[sx:]), w, self.attr)
             y += 1
-        func = (win.addch if isinstance(pref, int) else win.addstr)
-        func(self.pos[1] + i, self.pos[0] + i, pref, self.attr)
+        win.addstr(self.pos[1] + i, self.pos[0] + i, pref, self.attr)
         if suff:
-            func = (win.addch if isinstance(suff, int) else win.addstr)
-            func(self.pos[1] + i + h - 1, self.pos[0] + i + w + lts,
-                 suff, self.attr)
+            win.addstr(self.pos[1] + i + h - 1, self.pos[0] + i + w +
+                       len(suff), suff, self.attr)
     def _text_prefix(self):
-        return ''
+        return ('', '')
     def _text_suffix(self):
-        return ''
+        return ('', '')
     @property
     def text(self):
         return self._text
@@ -1436,9 +1433,10 @@ class TextWidget(BoxWidget, Scrollable):
         if self.border:
             ps[0] += 2
             ps[1] += 2
-        tp, ts = self._text_prefix(), self._text_suffix()
-        ps[0] += (1 if isinstance(tp, int) else len(tp))
-        ps[0] += (1 if isinstance(ts, int) else len(ts))
+        tp, ctp = self._text_prefix()
+        ts, cts = self._text_suffix()
+        if text: tp, ts = tp + ctp, cts + ts
+        ps[0] += len(tp) + len(ts)
         if self._extra_col: ps[0] += 1
         self._prefsize = tuple(ps)
         self.invalidate_layout()
@@ -1449,10 +1447,10 @@ class Label(TextWidget):
         tees = kwds.get('tees', False)
         self.tee_before = kwds.get('tee_before', tees)
         self.tee_after = kwds.get('tee_after', tees)
-    def _text_prefix(self):
-        return (_curses.ACS_RTEE if self.tee_before else '')
-    def _text_suffix(self):
-        return (_curses.ACS_LTEE if self.tee_after else '')
+    #def _text_prefix(self):
+    #    return ((_curses.ACS_RTEE if self.tee_before else ''), '')
+    #def _text_suffix(self):
+    #    return ('', (_curses.ACS_LTEE if self.tee_after else ''))
 
 class Button(TextWidget):
     def __init__(self, text='', callback=None, **kwds):
@@ -1473,9 +1471,9 @@ class Button(TextWidget):
     def focus(self, rev=False):
         return (not self.focused)
     def _text_prefix(self):
-        return '<'
+        return ('<', '')
     def _text_suffix(self):
-        return '>'
+        return ('', '>')
     def _set_focused(self, state):
         if self.focused == state: return
         self.focused = state
@@ -1509,11 +1507,11 @@ class CheckBox(ToggleButton):
         self.invalidate()
     def _text_prefix(self):
         if self._state:
-            return '[X] '
+            return ('[X]', ' ')
         else:
-            return '[ ] '
+            return ('[ ]', ' ')
     def _text_suffix(self):
-        return ''
+        return ('', '')
     def on_activate(self):
         ToggleButton.on_activate(self)
         self.state = (not self.state)
@@ -1533,11 +1531,11 @@ class RadioBox(ToggleButton):
         self.invalidate()
     def _text_prefix(self):
         if self._state:
-            return '(*) '
+            return ('(*)', ' ')
         else:
-            return '( ) '
+            return ('( )', ' ')
     def _text_suffix(self):
-        return ''
+        return ('', '')
     def on_activate(self):
         ToggleButton.on_activate(self)
         self.state = True
@@ -2046,7 +2044,7 @@ def mainloop(scr):
     lo = box.add(HorizontalContainer())
     c1 = lo.add(VerticalContainer())
     btnt = c1.add(Button('test', text_changer))
-    rdb1 = c1.add(CheckBox('NOP'))
+    chb1 = c1.add(CheckBox('NOP'))
     spc1 = c1.add(Widget(), weight=1)
     btne = c1.add(Button('exit', sys.exit,
                          attr_normal=_curses.color_pair(3)))
@@ -2096,10 +2094,12 @@ def mainloop(scr):
                     pos=(3, 2))
     twgc = grid.add(Label(background=_curses.color_pair(3),
                           align=ALIGN_CENTER), pos=(2, 0))
-    lbl1 = grid.add(Label('[3,2]', align=ALIGN_RIGHT,
+    lbl1 = grid.add(Label('[3,3]', align=ALIGN_RIGHT,
                           background=_curses.color_pair(3)),
                     pos=(3, 3))
     lbl2 = grid.add(Label('[0,3]'), pos=(0, 3))
+    chw1 = grid.add(AlignContainer(), pos=(4, 1))
+    chb2 = chw1.add(CheckBox())
     stru = grid.add(DebugStrut(pref_size=[20, 0], min_size=[10, 0]),
                     pos=(1, 1))
     grid.config_col(0)
