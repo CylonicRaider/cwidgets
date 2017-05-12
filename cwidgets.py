@@ -608,6 +608,26 @@ class BoxContainer(VisibilityContainer):
         self._box_rect = None
         self._widget_rect = None
 
+class TeeContainer(SingleContainer):
+    def __init__(self, **kwds):
+        SingleContainer.__init__(self, **kwds)
+        self.chars = parse_pair(kwds.get('tees',
+            (_curses.ACS_RTEE, _curses.ACS_LTEE)))
+        self.attrs = parse_pair(kwds.get('attrs', 0))
+    def getprefsize(self):
+        cps = self._child_prefsize()
+        return (cps[0] + 2, cps[1])
+    def relayout(self):
+        if self.children:
+            self.children[0].pos = (self.pos[0] + 1, self.pos[1])
+            self.children[0].size = (self.size[0] - 2, self.size[1])
+    def draw(self, win):
+        win.addch(self.pos[1], self.pos[0], self.chars[0],
+                  self.attrs[0])
+        win.addch(self.pos[1], self.pos[0] + self.size[0] - 1,
+                  self.chars[1], self.attrs[1])
+        SingleContainer.draw(self, win)
+
 class AlignContainer(VisibilityContainer):
     @classmethod
     def calc_wbox_1d(cls, pref, avl, scale, align):
@@ -2039,8 +2059,8 @@ def mainloop(scr):
     box = obx.add(MarginContainer(border=True,
                                   background=_curses.color_pair(2)))
     top = box.add(AlignContainer(), slot=MarginContainer.POS_TOP)
-    hdr = top.add(Label('cwidgets test', tees=True,
-                        attr=_curses.color_pair(2)))
+    htee = top.add(TeeContainer(attrs=_curses.color_pair(2)))
+    hdr = htee.add(Label('cwidgets test', attr=_curses.color_pair(2)))
     lo = box.add(HorizontalContainer())
     c1 = lo.add(VerticalContainer())
     btnt = c1.add(Button('test', text_changer))
@@ -2060,7 +2080,8 @@ def mainloop(scr):
                                  background=_curses.color_pair(2)))
     tvph = tvc.add(AlignContainer(align=ALIGN_LEFT),
                    slot=MarginContainer.POS_TOP)
-    tvpl = tvph.add(Label('entry test', tees=True,
+    tvpt = tvph.add(TeeContainer(attrs=_curses.color_pair(2)))
+    tvpl = tvpt.add(Label('entry test',
                           attr=_curses.color_pair(2)))
     entr = tvc.add(EntryBox(multiline=True, cmaxsize=(60, 20),
                             attr_normal=_curses.color_pair(1)))
@@ -2074,8 +2095,9 @@ def mainloop(scr):
                                  background=_curses.color_pair(2)))
     vpt = vpc.add(AlignContainer(align=ALIGN_LEFT),
                   slot=MarginContainer.POS_TOP)
-    vptl = vpt.add(Label('scrolling test', tees=True,
-                         attr=_curses.color_pair(2)))
+    vptt = vpt.add(TeeContainer(attrs=_curses.color_pair(2)))
+    vptl = vptt.add(Label('scrolling test',
+                          attr=_curses.color_pair(2)))
     vp = vpc.add(Viewport(background=_curses.color_pair(1),
                           cmaxsize=(60, 20)), weight=1)
     sbv = vpc.add(vp.bind(Scrollbar(Scrollbar.DIR_VERTICAL,
