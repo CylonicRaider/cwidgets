@@ -1983,19 +1983,18 @@ class Slider(BaseStrut):
         ret = (1, 1)
         if self.dir.vert: ret = ret[::-1]
         return maxpos(ret, BaseStrut.getprefsize(self))
+    def _handle_pos(self):
+        if self.min == self.max: return (0, 0)
+        perc = (float(self._value) - self.min) / (self.max - self.min)
+        return ((0, int((self.size[1] - 1) * perc)) if self.dir.vert else
+                (int((self.size[0] - 1) * perc), 0))
     def draw(self, win):
         if self.valid_display: return
         BaseStrut.draw(self, win)
         Strut.draw_strut(win, self.pos, self.size[self.dir.vert],
                          self.dir, self.attr)
         if self.min != self.max:
-            perc = (float(self._value) - self.min) / (self.max - self.min)
-            if self.dir.vert:
-                rp = (self.pos[0],
-                      self.pos[1] + int((self.size[1] - 1) * perc))
-            else:
-                rp = (self.pos[0] + int((self.size[0] - 1) * perc),
-                      self.pos[1])
+            rp = addpos(self.pos, self._handle_pos())
             win.addch(rp[1], rp[0], _curses.ACS_SSSS, self.attr)
     def event(self, event):
         ret = TextWidget.event(self, event)
@@ -2018,7 +2017,7 @@ class Slider(BaseStrut):
     def on_focuschange(self):
         self.attr = (self.attr_active if self.focused else self.attr_normal)
         if self.focused:
-            self.grab_input(self.rect, self.pos)
+            self.grab_input(self.rect, addpos(self.pos, self._handle_pos()))
     @property
     def value(self):
         return self._value
@@ -2027,6 +2026,8 @@ class Slider(BaseStrut):
         newvalue = max(self.min, min(newvalue, self.max))
         if newvalue == self._value: return
         self._value = newvalue
+        if self.focused:
+            self.grab_input(self.rect, addpos(self.pos, self._handle_pos()))
         self.invalidate()
 
 class BaseRadioGroup(object):
