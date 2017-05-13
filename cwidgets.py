@@ -663,11 +663,12 @@ class TeeContainer(AlignContainer):
         self.attrs = parse_pair(kwds.get('attrs', 0))
         self._pads = (0, 1, 0, 1)
     def draw(self, win):
-        win.addch(self._wbox[1], self._wbox[0], self.tees[0],
-                  self.attrs[0])
-        win.addch(self._wbox[1] + self._wbox[3] - 1,
-                  self._wbox[0] + self._wbox[2] - 1,
-                  self.tees[1], self.attrs[1])
+        if self.valid_display: return
+        sw = win.derwin(self._wbox[3], self._wbox[2],
+                        self._wbox[1], self._wbox[0])
+        sw.addch(0, 0, self.tees[0], self.attrs[0])
+        sw.insch(self._wbox[3] - 1, self._wbox[2] - 1, self.tees[1],
+                 self.attrs[1])
         AlignContainer.draw(self, win)
 
 class Viewport(SingleContainer, Scrollable):
