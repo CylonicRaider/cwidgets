@@ -1155,6 +1155,9 @@ class LinearContainer(Container):
     def _make_boxes(self, size):
         if self._boxes is not None: return
         self._make_preboxes()
+        if len(self._preboxes) == 0:
+            self._boxes = []
+            return
         sizes, mins, advances, weights, sweights = [], [], [], [], []
         for w, wh, ms in self._preboxes:
             sizes.append(wh)
@@ -1964,6 +1967,68 @@ class Scrollbar(BaseStrut):
         self._update_grab()
         self.invalidate()
 
+class Slider(BaseStrut):
+    def __init__(self, min=0, max=10, steps=None, **kwds):
+        kwds.setdefault('dir', self.DIR_HORIZONTAL)
+        BaseStrut.__init__(self, **kwds)
+        self.min = min
+        self.max = max
+        self.steps = steps
+        self._value = kwds.get('value', self.min)
+        self.attr_normal = kwds.get('attr_normal', 0)
+        self.attr_active = kwds.get('attr_active', _curses.A_STANDOUT)
+        self.focused = False
+        self.attr = self.attr_normal
+    def getprefsize(self):
+        ret = (1, 1)
+        if self.dir.vert: ret = ret[::-1]
+        return maxpos(ret, BaseStrut.getprefsize(self))
+    def draw(self, win):
+        if self.valid_display: return
+        BaseStrut.draw(self, win)
+        Strut.draw_strut(win, self.pos, self.size[self.dir.vert],
+                         self.dir, self.attr)
+        if self.min != self.max:
+            perc = (float(self._value) - self.min) / (self.max - self.min)
+            if self.dir.vert:
+                rp = (self.pos[0],
+                      self.pos[1] + int((self.size[1] - 1) * perc))
+            else:
+                rp = (self.pos[0] + int((self.size[0] - 1) * perc),
+                      self.pos[1])
+            win.addch(rp[1], rp[0], _curses.ACS_SSSS, self.attr)
+    def event(self, event):
+        ret = TextWidget.event(self, event)
+        if event[0] == '+':
+            self.value += 1
+            return True
+        elif event[0] == '-':
+            self.value -= 1
+            return True
+        elif event[0] == FocusEvent:
+            self._set_focused(event[1])
+        return ret
+    def focus(self, rev=False):
+        return (not self.focused)
+    def _set_focused(self, state):
+        if self.focused == state: return
+        self.focused = state
+        self.on_focuschange()
+        self.invalidate()
+    def on_focuschange(self):
+        self.attr = (self.attr_active if self.focused else self.attr_normal)
+        if self.focused:
+            self.grab_input(self.rect, self.pos)
+    @property
+    def value(self):
+        return self._value
+    @value.setter
+    def value(self, newvalue):
+        newvalue = max(self.min, min(newvalue, self.max))
+        if newvalue == self._value: return
+        self._value = newvalue
+        self.invalidate()
+
 class BaseRadioGroup(object):
     def __init__(self):
         self.widgets = []
@@ -2085,7 +2150,7 @@ def mainloop(scr):
                                 attrs=_curses.color_pair(2)),
                    slot=MarginContainer.POS_TOP)
     tvpl = tvph.add(Label('entry test', attr=_curses.color_pair(2)))
-    entr = tvc.add(EntryBox(multiline=True, cmaxsize=(60, 20),
+    entr = tvc.add(EntryBox(multiline=True, cmaxsize=(60, 10),
                             attr_normal=_curses.color_pair(1)))
     tvv = tvc.add(entr.bind(Scrollbar(Scrollbar.DIR_VERTICAL,
                                       attr_highlight=_curses.color_pair(5))),
@@ -2101,7 +2166,7 @@ def mainloop(scr):
     vptl = vpt.add(Label('scrolling test',
                          attr=_curses.color_pair(2)))
     vp = vpc.add(Viewport(background=_curses.color_pair(1),
-                          cmaxsize=(60, 20)), weight=1)
+                          cmaxsize=(60, 10)), weight=1)
     sbv = vpc.add(vp.bind(Scrollbar(Scrollbar.DIR_VERTICAL,
                                     attr_highlight=_curses.color_pair(5))),
                   slot=MarginContainer.POS_RIGHT)
@@ -2131,6 +2196,10 @@ def mainloop(scr):
     grid.config_col(2, weight=1)
     grid.config_col(3)
     grid.config_row(1, weight=1)
+    wtc = c2.add(MarginContainer(border=1, background=_curses.color_pair(0)))
+    wtlc = wtc.add(TeeContainer(), slot=MarginContainer.POS_TOP)
+    wtl = wtlc.add(Label('further widget tests'))
+    sld1 = wtc.add(Slider())
     wr.main()
 
 def main():
