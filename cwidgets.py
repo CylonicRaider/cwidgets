@@ -7,6 +7,7 @@ import sys as _sys
 import time as _time
 import curses as _curses
 import codecs as _codecs
+import locale as _locale
 
 _ENCODING = None
 _KEY_RETURN = ord('\n')
@@ -2360,12 +2361,20 @@ class RadioGroup(BaseRadioGroup):
         self._set_active(widget)
 
 def init():
+    """
+    Initialize the library
+
+    Should be called once before performing any actions.
+
+    WARNING: This modifies the module's global state, and the program-wide
+             locale.
+    """
     global _ENCODING
-    import locale
-    locale.setlocale(locale.LC_ALL, '')
-    _ENCODING = locale.getpreferredencoding(True)
+    _locale.setlocale(_locale.LC_ALL, '')
+    _ENCODING = _locale.getpreferredencoding(True)
 
 def mainloop(scr):
+    "Inner function of the debugging routine"
     class DebugStrut(Widget):
         def __init__(self, **kwds):
             Widget.__init__(self, **kwds)
@@ -2495,6 +2504,11 @@ def mainloop(scr):
     wr.main()
 
 def main():
+    """
+    Debugging main function
+
+    Invoked when cwidgets is run as a script.
+    """
     #try:
         init()
         _curses.wrapper(mainloop)
