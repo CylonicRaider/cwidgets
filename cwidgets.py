@@ -13,7 +13,7 @@ _ENCODING = None
 _KEY_RETURN = ord('\n')
 _KEY_TAB = ord('\t')
 
-#LOG = []
+_LOG = []
 
 if _sys.version_info[0] <= 2:
     _bchr = chr
@@ -1745,16 +1745,18 @@ class Button(TextWidget):
 
 class ToggleButton(Button):
     def __init__(self, text='', **kwds):
-        self._state = None
         Button.__init__(self, text, **kwds)
-        self.state = kwds.get('state', None)
+        self._state = kwds.get('state', None)
+        self._state_set = False
     def _set_state(self, value):
         self._state = value
     @property
     def state(self):
+        if not self._state_set: self.state = self._state
         return self._state
     @state.setter
     def state(self, value):
+        self._state_set = True
         self._set_state(value)
 
 class CheckBox(ToggleButton):
@@ -1774,8 +1776,8 @@ class CheckBox(ToggleButton):
 
 class RadioBox(ToggleButton):
     def __init__(self, text='', **kwds):
-        self.group = None
         ToggleButton.__init__(self, text, **kwds)
+        self.group = None
     def delete(self):
         ToggleButton.delete(self)
         if self.group:
@@ -2509,14 +2511,14 @@ def main():
 
     Invoked when cwidgets is run as a script.
     """
-    #try:
+    try:
         init()
         _curses.wrapper(mainloop)
-    #finally:
-    #    if LOG:
-    #        LOG.append('')
-    #        import sys
-    #        sys.stderr.write('\n'.join(map(str, LOG)))
-    #        sys.stderr.flush()
+    finally:
+        if _LOG:
+            _LOG.append('')
+            import sys
+            sys.stderr.write('\n'.join(map(str, LOG)))
+            sys.stderr.flush()
 
 if __name__ == '__main__': main()
