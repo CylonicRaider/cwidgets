@@ -191,27 +191,74 @@ SCALE_COMPRESS = Scaling(0.0, 'SCALE_COMPRESS')
 SCALE_STRETCH = Scaling(1.0, 'SCALE_STRETCH')
 
 class Scrollable:
+    """
+    A mixin class denoting widgets whose contents can be scrolled
+
+    Scrollable implements the management of the scrolling position and the
+    binding of scroll bars; the widget class remains responsible for
+    rendering the widget. The scroll bars are laid out and rendered
+    independently from the scrolling widget.
+
+    The usage/calling direction provided in the documentation serve as
+    suggestions and do not prohibit use not mentioned by them (although care
+    should be exercised in that case).
+
+    Attributes:
+    scrollpos   : The current scrolling position. Modified by the widget
+                  class and/or Scrollable, and interpreted by both.
+    maxscrollpos: The maximal scrolling position (with the lower bound
+                  impliticly being zero). Set by the widget class and
+                  consumed by Scrollable.
+    contentsize : The size of the content being scrolled. Used in
+                  conjunction with maxscrollpos to determine the size of the
+                  scroll bar handles. Set by the widget class and read by
+                  Scrollable.
+    focusable   : Whether the widget can scroll itself appropriately. If
+                  true, the scrollbars cannot be focused and serve merely as
+                  visual hints of the current scrolling position. If false,
+                  the scrollbars can be focused and scroll the widget "on
+                  their own". Set by the widget class and interpreted by
+                  Scrollable.
+    scrollbars  : The currently bound scroll bars. Modified and used by
+                  Scrollable.
+    """
     def __init__(self):
+        """
+        Initializer
+        """
         self.scrollpos = [0, 0]
         self.maxscrollpos = (0, 0)
-        self.childsize = (0, 0)
-        self.scrollbars = {'vert': None, 'horiz': None}
+        self.contentsize = (0, 0)
         self.focusable = True
+        self.scrollbars = {'vert': None, 'horiz': None}
     def bind(self, scrollbar):
+        """
+        Bind the given scrollbar to self and return it
+
+        If another scrollbar with the same direction is already bound, it is
+        unbound first.
+
+        Called externally when creating the UI.
+        """
         if scrollbar.dir.vert:
             osb = self.scrollbars['vert']
-            if osb is scrollbar: return
+            if osb is scrollbar: return scrollbar
             if osb: self.unbind(osb)
             self.scrollbars['vert'] = scrollbar
             scrollbar.bind(self)
         else:
             osb = self.scrollbars['horiz']
-            if osb is scrollbar: return
+            if osb is scrollbar: return scrollbar
             if osb: self.unbind(osb)
             self.scrollbars['horiz'] = scrollbar
             scrollbar.bind(self)
         return scrollbar
     def unbind(self, scrollbar):
+        """
+        Undo the binding of the given scrollbar to self and return it
+
+        Called by Scrollable as part of the binding procedure.
+        """
         if self.scrollbars['vert'] is scrollbar:
             self.scrollbars['vert'] = None
             scrollbar.unbind(self)
@@ -220,24 +267,64 @@ class Scrollable:
             scrollbar.unbind(self)
         return scrollbar
     def scroll(self, newpos, rel=False):
+        """
+        Scroll by/to the given coordinates
+
+        If rel is true, the scrolling position is incremented by newpos;
+        otherwise, it is set to that. Returns whether the scrolling position
+        actually changed (and, hence, on_scroll() has been called).
+
+        Called by the widget class, Scrollable, and/or externally. The widget
+        class should override on_scroll() instead of this method.
+        """
         if rel: newpos = addpos(self.scrollpos, newpos)
         newpos = maxpos((0, 0), minpos(newpos, self.maxscrollpos))
         oldpos = tuple(self.scrollpos)
         update = (newpos[0] != oldpos[0] or newpos[1] != oldpos[1])
         self.scrollpos[:] = newpos
-        self.on_scroll(oldpos)
+        if update: self.on_scroll(oldpos)
         return update
     def on_scroll(self, oldpos):
+        """
+        Event handler for scrolling
+
+        oldpos is the old scrolling position; the current one can be
+        determined by inspecting the scrollpos attribute of self.
+
+        Called by Scrollable from scroll(); handled by the widget class and
+        Scrollable.
+        """
         if self.scrollbars['vert']:
             self.scrollbars['vert'].update()
         if self.scrollbars['horiz']:
             self.scrollbars['horiz'].update()
     def on_highlight(self, active):
+        """
+        Event handler for highlighting a scrollbar
+
+        If two scroll bars are bound to a widget and one of them is focused,
+        the other one is "highlighted" in a subordinate manner as well.
+
+        Called by the scroll bars and handled by Scrollable.
+        """
         if self.scrollbars['vert']:
             self.scrollbars['vert'].highlight(active)
         if self.scrollbars['horiz']:
             self.scrollbars['horiz'].highlight(active)
     def scroll_event(self, event):
+        """
+        Handle the given event as a scrolling action, if applicable
+
+        The semantics of this method are identical to those of the general
+        event().
+        As a guideline, this method *should* be called after other ways of
+        consume the event by children and/or this widget have been
+        considered.
+
+        Called (potentially) by the widget, *and* bound scroll bars (when
+        those are focused); handled by Scrollable (and the widget if it
+        wants to capture events from the scroll bars).
+        """
         if event[0] == _curses.KEY_UP:
             return self.scroll((0, -1), True)
         elif event[0] == _curses.KEY_DOWN:
@@ -249,21 +336,54 @@ class Scrollable:
         return False
 
 class WidgetRoot(object):
+    """
+    A container for a widget hierarchy directly interfacing curses
+
+    This class implements the methods expected by a widget to be present on
+    its parent (and some others, as applicable) as well as an event loop
+    translating curses events into cwidgets ones.
+
+    A typical use pattern would be:
+    >>> root = WidgetRoot(window)
+    >>> root.add(widget)
+    >>> root.main()
+
+    Attributes are:
+    window       : The curses window to access.
+    widget       : The (only) widget to host.
+    valid_display: Whether any part of self needs to be redrawn.
+    valid_layout : Whether the layout of self needs to be remade.
+    """
     def __init__(self, window):
+        """
+        Initializer
+
+        window is the curses window to draw to and to receive events from.
+        """
         self.window = window
         self.widget = None
-        self._cursorpos = None
         self.valid_display = False
         self.valid_layout = False
+        self._cursorpos = None
         self._init_decoder()
     def _init_decoder(self):
+        "Initialize the input decoder"
         if _ENCODING:
             f = _codecs.getincrementaldecoder(_ENCODING)
             self._decoder = f(errors='replace')
         else:
             self._decoder = None
     def make(self):
-        if not self.widget is None:
+        """
+        Perform layout
+
+        This lets the widget (if any) make itself.
+        The widget is forcefully fitted to the size of the window; if that is
+        below the widget's minimum size, trying to draw it can (and will)
+        crash. To avoid this scenario, wrap the widget into a Viewport if
+        necessary.
+        """
+        if self.widget is not None:
             hw = self.window.getmaxyx()
             self.widget.pos = (0, 0)
             self.widget.size = (hw[1], hw[0])
@@ -271,7 +391,10 @@ class WidgetRoot(object):
         self.valid_layout = True
         self.invalidate()
     def redraw(self):
-        if not self.widget is None:
+        """
+        Redraw the widget and adjust the cursor position as necessary
+        """
+        if self.widget is not None:
             self.widget.draw(self.window)
             if self._cursorpos is None:
                 _curses.curs_set(0)
@@ -283,23 +406,56 @@ class WidgetRoot(object):
                 _curses.doupdate()
         self.valid_display = True
     def grab_input(self, rect, pos=None, child=None, full=False):
+        """
+        Bring focus to the specified area
+
+        Of the arguments, only pos is interpreted, and used to set the cursor
+        position (or to hide the cursor) on the next redraw.
+        """
+        # TODO: Respect full.
         self._cursorpos = pos
     def event(self, event):
+        """
+        Handle an input event
+
+        Returns whether the event was consumed.
+        Tab and back tab key presses are translated into calls of focus(); if
+        those do not succeed or the key was not a TAB, the event is passed on
+        to the widget.
+        """
         if event[0] == _KEY_TAB:
-            return self.focus()
+            if self.focus(): return True
         elif event[0] == _curses.KEY_BTAB:
-            return self.focus(True)
-        if not self.widget is None:
+            if self.focus(True): return True
+        if self.widget is not None:
             return self.widget.event(event)
         return False
     def focus(self, rev=False):
+        """
+        Cycle focus between widgets
+
+        rev specifies the direction of the focus movement. Returns whether
+        the focus switch succeeded.
+        If no widget is focused, the first (or last) one is focused. If the
+        last (or first) widget is reached, focus wraps around.
+        """
         if self.widget is None:
             return False
-        if not self.widget.focus(rev):
-            if not self.widget.focus(rev):
-                return False
+        # When a widget is fully traversed, it de-focuses itself and returns
+        # false; since there is nothing outside us, we "wrap around" and ask
+        # the widget to focus itself.
+        if not self.widget.focus(rev) and not self.widget.focus(rev):
+            return False
         return True
     def invalidate(self, rec=False, child=None):
+        """
+        Mark the widget root as "damaged", i.e. in need of a redraw
+
+        If rec is true, the entire widget tree is marked recursively
+        regardless of topology and state (see Viewport for a notable
+        exception), otherwise, subtrees are marked selectively. child
+        indicates which widget the redraw request originates from.
+        """
         if rec:
             self.valid_display = False
             self.widget.invalidate(rec)
@@ -308,20 +464,36 @@ class WidgetRoot(object):
         self.valid_display = False
         self.widget.invalidate()
     def invalidate_layout(self):
+        """
+        Mark the widget root as in need of a layout refresh
+
+        The action is (unless valid_layout is already false) propagated to
+        the nested widget.
+        """
         if not self.valid_layout: return
         self.valid_layout = False
         self.widget.invalidate_layout()
     def add(self, widget):
-        if widget is self.widget: return
+        """
+        Add the given widget to the root
+
+        Since a WidgetRoot can only manage one descendant, this previous
+        child (if any) is removed.
+        """
+        if widget is self.widget: return widget
         widget.delete()
         self.widget = widget
         widget.parent = self
         return widget
     def remove(self, widget):
+        """
+        Remove the given widget from self
+        """
         if widget is self.widget:
             self.widget = None
             widget.parent = None
     def _process_input(self, ch):
+        "Handle an input character from curses"
         if ch == _curses.KEY_RESIZE:
             self.invalidate_layout()
         elif ch == _curses.KEY_MOUSE:
@@ -335,6 +507,12 @@ class WidgetRoot(object):
         else:
             self.event((ch,))
     def main(self):
+        """
+        Main loop
+
+        Revalidates and redraws the widget as necessary, and processes
+        events, all that ad infinitum (or until an exception is thrown).
+        """
         while 1:
             if not self.valid_layout:
                 self.make()
@@ -759,11 +937,11 @@ class Viewport(SingleContainer, Scrollable):
             self.children[0].size = maxpos(self.size, chs)
             self.padsize = maxpos(self.children[0].size, self.size)
             self.maxscrollpos = subpos(self.padsize, self.size)
-            self.childsize = self.children[0].size
+            self.contentsize = self.children[0].size
         else:
             self.padsize = self.size
             self.maxscrollpos = (0, 0)
-            self.childsize = (0, 0)
+            self.contentsize = (0, 0)
         oldpos = tuple(self.scrollpos)
         self.scrollpos[:] = (
             zbound(self.scrollpos[0], self.maxscrollpos[0]),
@@ -1445,7 +1623,7 @@ class TextWidget(BoxWidget, Scrollable):
         self._indents = None
         self._vindent = None
         self._prefsize = None
-        self.childsize = (0, 0)
+        self.contentsize = (0, 0)
     def getprefsize(self):
         # Force calculation of the relevant values.
         self.text = self._text
@@ -1467,7 +1645,7 @@ class TextWidget(BoxWidget, Scrollable):
         BoxWidget.make(self)
         self._update_indents()
         self.maxscrollpos = subpos(self._prefsize, self.size)
-        self.childsize = maxpos(self._prefsize, self.size)
+        self.contentsize = maxpos(self._prefsize, self.size)
     def draw(self, win):
         if self.valid_display: return
         BoxWidget.draw(self, win)
@@ -2004,7 +2182,7 @@ class Scrollbar(BaseStrut):
         offs = self.bound.scrollpos[idx]
         maxoffs = self.bound.maxscrollpos[idx]
         size = self.bound.size[idx]
-        isize = self.bound.childsize[idx]
+        isize = self.bound.contentsize[idx]
         ssize = self.size[idx] - 2
         if isize == size or ssize == 0:
             self._handle = None
@@ -2097,33 +2275,75 @@ class Slider(BaseStrut):
             self.value += delta
 
 class BaseRadioGroup(object):
+    """
+    A group of buttons
+
+    This class provides base methods that are specified by RadioGroup.
+    """
     def __init__(self):
+        "Initializer"
         self.widgets = []
     def add(self, widget):
-        self.widgets.append(widget)
-        og = widget.group
+        """
+        Add the widget to this group
+
+        If it is in any other, it is removed from there, in any case, it is
+        returned.
+        """
+        if widget in self.widgets: return widget
+        if widget.group is not None: widget.group.remove(widget)
         widget.group = self
+        self.widgets.append(widget)
         return widget
     def remove(self, widget):
+        """
+        Remove the widget from the group and return it
+        """
+        if widget not in self.widgets: return widget
+        widget.group = None
         self.widgets.remove(widget)
+        return widget
         widget.group = None
     def on_set(self, widget, value):
+        """
+        Event handler invoked by the widget when its state changes
+        """
         pass
 
 class RadioGroup(BaseRadioGroup):
+    """
+    A group of mutually exclusive buttons
+
+    Whenever a button's state becomes a true value, the state of the
+    previously active button is set to False.
+    """
     def __init__(self):
+        "Initializer"
         BaseRadioGroup.__init__(self)
         self.active = None
     def add(self, widget):
+        """
+        Add a widget to the group
+
+        If if is active, it becomes the group's new active widget, possibly
+        disabling the previously active one.
+        """
         BaseRadioGroup.add(self, widget)
         if widget.state:
             self._set_active(widget)
         return widget
     def remove(self, widget):
+        """
+        Remove a widget from the group
+
+        If the widget was the active one, it is deactivated.
+        """
         BaseRadioGroup.remove(self, widget)
         if widget is self.active:
-            self.active = None
+            self._set_active(None)
+        return widget
     def _set_active(self, widget):
+        "Actually update the currently active widget"
         if widget is self.active: return
         if self.active:
             self.active.state = False
@@ -2131,6 +2351,11 @@ class RadioGroup(BaseRadioGroup):
         if self.active:
             self.active.state = True
     def on_set(self, widget, value):
+        """
+        Event handler invoked by widgets changing their state
+
+        This method actually enforces the mutual exclusion constraint.
+        """
         if not value: return
         self._set_active(widget)
 
