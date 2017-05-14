@@ -22,25 +22,34 @@ else:
     _unicode = str
 
 def zbound(v, m):
+    "Return x such that 0 <= x <= m"
     return max(0, min(v, m))
 def addpos(p1, p2):
+    "Return the sum of the 2-vectors p1 and p2"
     return (p1[0] + p2[0], p1[1] + p2[1])
 def subpos(p1, p2):
+    "Return the difference of the 2-vectors p1 and p2"
     return (p1[0] - p2[0], p1[1] - p2[1])
 def minpos(p1, p2):
+    "Return the component-by-component minimum of p1 and p2"
     return (min(p1[0], p2[0]), min(p1[1], p2[1]))
 def maxpos(p1, p2):
+    "Return the component-by-component maximum of p1 and p2"
     return (max(p1[0], p2[0]), max(p1[1], p2[1]))
 def shiftrect(r, p):
+    "Return r with the position increased by p"
     return (r[0] + p[0], r[1] + p[1], r[2], r[3])
 def unshiftrect(r, p):
+    "Return r with the position decreased by p"
     return (r[0] - p[0], r[1] - p[1], r[2], r[3])
 def boundrect(r, b):
+    "Return r shifted and possibly scaled such that it is entirely in b"
     if r[0] < b[0]: r = (b[0], r[1], r[2] - b[0] + r[0], r[3])
     if r[1] < b[1]: r = (r[0], b[1], r[2], r[3] - b[1] + r[1])
     return (r[0], r[1], zbound(r[2], b[2]), zbound(r[3], b[3]))
 
 def linear_distrib(full, amnt):
+    "Return a list of amnt approximately equal integers summing up to full"
     if full == 0:
         return [0] * amnt
     elif amnt == 0:
@@ -56,6 +65,11 @@ def linear_distrib(full, amnt):
     assert crem == rem, 'linear_distrib() failed'
     return ret
 def weight_distrib(full, weights):
+    """
+    Return a list of integers summing up to full weighted by weights
+
+    The items are approximately proportional to the corresponding weights.
+    """
     if full == 0:
         return [0] * len(weights)
     elif not weights:
@@ -74,6 +88,12 @@ def weight_distrib(full, weights):
     return r
 
 def parse_pair(v, default=(None, None)):
+    """
+    Expand a scalar or 2-tuple into a 2-tuple
+
+    If any element of that is None, the corresponding value from default
+    is substituted.
+    """
     try:
         v = tuple(v)
     except TypeError:
@@ -81,10 +101,17 @@ def parse_pair(v, default=(None, None)):
     return (default[0] if v[0] is None else v[0],
             default[1] if v[1] is None else v[1])
 def parse_quad(v, default=(None, None, None, None)):
+    """
+    Expand a scalar or tuple into a 4-tuple
+
+    If v is a tuple with less than four elements, it is expanded similarly to
+    a CSS margin value. Elements of the result that are None are substituted
+    by corresponding values from default.
+    """
     try:
         v = tuple(v)
     except TypeError:
-        v = (v,)
+        v = (v, v, v, v)
     if len(v) == 0:
         raise ValueError('Too few values to parse_quad()!')
     elif len(v) == 1:
@@ -103,6 +130,14 @@ def parse_quad(v, default=(None, None, None, None)):
             default[3] if v[3] is None else v[3])
 
 def inflate(size, margin, mul=1):
+    """
+    Increase size (a size or rect) by mul multiples of margin
+
+    margin's items are interpreted as those of a CSS margin. If size is a
+    4-tuple, its "sides" are moved outwards by the corresponding items of
+    margin; if it is a 2-tuple, it is treated as if it were a rect with a
+    nondescript position that is discarded again and the given size.
+    """
     if len(size) == 2:
         return (margin[3] * mul + size[0] + margin[1] * mul,
                 margin[0] * mul + size[1] + margin[2] * mul)
@@ -114,9 +149,15 @@ def inflate(size, margin, mul=1):
     else:
         raise TypeError('Must be size or rect')
 def deflate(rect, margin, mul=1):
+    """
+    Decrease size (a size or rect) by mul multiples of margin
+
+    This is equivalent to inflate(rect, margin, -mul).
+    """
     return inflate(rect, margin, -mul)
 
-class Singleton:
+class Constant:
+    "A named constant with a meaningful string representation"
     def __init__(self, __name__, **__dict__):
         self.__dict__ = __dict__
         self.__name__ = __name__
@@ -125,23 +166,27 @@ class Singleton:
     def __str__(self):
         return str(self.__name__)
 
-class Event(Singleton): pass
+class Event(Constant):
+    "A singleton for differentiating special events from keystrokes"
 FocusEvent = Event('FocusEvent')
 
-class NumericSingleton(Singleton, float):
+class NumericConstant(Constant, float):
+    "A constant with a floating-point value"
     def __new__(cls, __value__, __name__, **__dict__):
         return float.__new__(cls, __value__)
     def __init__(self, __value__, __name__, **__dict__):
-        Singleton.__init__(self, __name__, **__dict__)
+        Constant.__init__(self, __name__, **__dict__)
 
-class Alignment(NumericSingleton): pass
+class Alignment(NumericConstant):
+    "A numerical alignment value"
 ALIGN_TOP = Alignment(0.0, 'ALIGN_TOP')
 ALIGN_LEFT = Alignment(0.0, 'ALIGN_LEFT')
 ALIGN_CENTER = Alignment(0.5, 'ALIGN_CENTER')
 ALIGN_RIGHT = Alignment(1.0, 'ALIGN_RIGHT')
 ALIGN_BOTTOM = Alignment(1.0, 'ALIGN_BOTTOM')
 
-class Scaling(NumericSingleton): pass
+class Scaling(NumericConstant):
+    "A numerical scaling value"
 SCALE_COMPRESS = Scaling(0.0, 'SCALE_COMPRESS')
 SCALE_STRETCH = Scaling(1.0, 'SCALE_STRETCH')
 
@@ -507,7 +552,8 @@ class SingleContainer(Container):
         self._chps = None
 
 class VisibilityContainer(SingleContainer):
-    class Visibility(Singleton): pass
+    class Visibility(Constant):
+        "A mode of widget visibility"
     VIS_VISIBLE = Visibility('VIS_VISIBLE')
     VIS_HIDDEN = Visibility('VIS_HIDDEN')
     VIS_COLLAPSE = Visibility('VIS_COLLAPSE')
@@ -857,7 +903,8 @@ class PlacerContainer(StackContainer):
         del self._sizes[widget]
 
 class MarginContainer(Container):
-    class Position(Singleton): pass
+    class Position(Constant):
+        "The position of a widget in a MarginContainer's grid"
     POS_TOPLEFT  = Position('POS_TOPLEFT',  x=0, y=0)
     POS_TOP      = Position('POS_TOP',      x=1, y=0)
     POS_TOPRIGHT = Position('POS_TOPRIGHT', x=2, y=0)
@@ -974,12 +1021,14 @@ class MarginContainer(Container):
                 (ws[slot.x], hs[slot.y])))
 
 class LinearContainer(Container):
-    class Rule(Singleton): pass
+    class Rule(Constant):
+        "An item's layout mode of LinearContainer"
     RULE_STAY = Rule('RULE_STAY', advances=(0, 0))
     RULE_RIGHT = Rule('RULE_RIGHT', advances=(1, 0))
     RULE_DOWN = Rule('RULE_DOWN', advances=(0, 1))
     RULE_DIAG = Rule('RULE_DIAG', advances=(1, 1))
-    class Mode(Singleton): pass
+    class Mode(Constant):
+        "The overall layout mode of LinearContainer"
     MODE_NORMAL = Mode('MODE_NORMAL')
     MODE_STRETCH = Mode('MODE_STRETCH')
     MODE_EQUAL = Mode('MODE_EQUAL')
@@ -1790,7 +1839,8 @@ class EntryBox(TextWidget):
         self._curpos[:] = self._calc_curpos(value)
 
 class BaseStrut(Widget):
-    class Direction(Singleton): pass
+    class Direction(Constant):
+        "A strut orientation storing whether to show leading/trailing tees"
     DIR_VERTICAL = Direction('DIR_VERTICAL',
         vert=True , lo=False, hi=False)
     DIR_UP = Direction('DIR_UP',
