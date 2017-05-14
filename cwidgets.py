@@ -1968,12 +1968,12 @@ class Scrollbar(BaseStrut):
         self.invalidate()
 
 class Slider(BaseStrut):
-    def __init__(self, min=0, max=10, steps=None, **kwds):
+    def __init__(self, min=0, max=1, step=None, **kwds):
         kwds.setdefault('dir', self.DIR_HORIZONTAL)
         BaseStrut.__init__(self, **kwds)
         self.min = min
         self.max = max
-        self.steps = steps
+        self.step = step
         self._value = kwds.get('value', self.min)
         self.attr_normal = kwds.get('attr_normal', 0)
         self.attr_active = kwds.get('attr_active', _curses.A_STANDOUT)
@@ -1997,12 +1997,18 @@ class Slider(BaseStrut):
             rp = addpos(self.pos, self._handle_pos())
             win.addch(rp[1], rp[0], _curses.ACS_SSSS, self.attr)
     def event(self, event):
-        ret = TextWidget.event(self, event)
+        ret = BaseStrut.event(self, event)
         if event[0] == '+':
-            self.value += 1
+            if self.step is None:
+                self.change(1, True)
+            else:
+                self.change(1)
             return True
         elif event[0] == '-':
-            self.value -= 1
+            if self.step is None:
+                self.change(-1, True)
+            else:
+                self.change(-1)
             return True
         elif event[0] == FocusEvent:
             self._set_focused(event[1])
@@ -2029,6 +2035,14 @@ class Slider(BaseStrut):
         if self.focused:
             self.grab_input(self.rect, addpos(self.pos, self._handle_pos()))
         self.invalidate()
+    def change(self, delta, visual=False):
+        if visual:
+            if self.size[self.dir.vert] == 1: return
+            d = (float(delta) * (self.max - self.min) /
+                 (self.size[self.dir.vert] - 1))
+            self.value += d
+        else:
+            self.value += delta
 
 class BaseRadioGroup(object):
     def __init__(self):
