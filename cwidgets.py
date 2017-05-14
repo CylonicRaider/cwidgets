@@ -2212,9 +2212,9 @@ def mainloop(scr):
     grid.config_col(3)
     grid.config_row(1, weight=1)
     wtc = c2.add(MarginContainer(border=1, background=_curses.color_pair(0)))
-    wtlc = wtc.add(TeeContainer(), slot=MarginContainer.POS_TOP)
+    wtlc = wtc.add(TeeContainer(align=0.25), slot=MarginContainer.POS_TOP)
     wtl = wtlc.add(Label('further widget tests'))
-    sld1 = wtc.add(Slider())
+    sld1 = wtc.add(Slider(0, 10, 1))
     wr.main()
 
 def main():
