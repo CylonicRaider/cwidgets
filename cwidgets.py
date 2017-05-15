@@ -530,7 +530,36 @@ class WidgetRoot(object):
             self.window.nodelay(0)
 
 class Widget(object):
+    """
+    Base class for all UI widgets
+
+    This provides default implementations for all methods.
+
+    Attributes:
+    minsize      : The (externally set) minimal size below which the widget
+                   must not shrink.
+    parent       : The parent of this widget in the hierarchy.
+    pos          : The position of the widget in the layout.
+    size         : The size of the widget in the layout.
+    valid_display: Whether the widget has *not* to be redrawn.
+    valid_layout : Whether the widget's layout has *not* to be remade.
+    grabbing     : If the widget is currently in charge of the cursor, a
+                   rectangle indicating the area to display.
+    grabbing_full: Whether the widget is grabbing (in the proper sense) all
+                   input.
+    cursor_pos   : When grabbing is true, the (absolute) position of the
+                   cursor as set by the widget.
+
+    See also:
+    Container: for specific notes on widgets "containing" other ones.
+    """
     def __init__(self, **kwds):
+        """
+        Initializer
+
+        Accepts configuration via keyword arguments:
+        minsize: The minsize attribute.
+        """
         self.minsize = kwds.get('minsize', (0, 0))
         self.parent = None
         self.pos = None
@@ -542,12 +571,31 @@ class Widget(object):
         self.cursor_pos = None
     @property
     def rect(self):
+        "The position concatenated with the size"
         return (self.pos[0], self.pos[1], self.size[0], self.size[1])
     def getminsize(self):
+        """
+        Compute the minimal layout size of this widget
+
+        The default implementation is to return the preferred size.
+        """
         return self.getprefsize()
     def getprefsize(self):
+        """
+        Compute the preferred layout size of this widget
+
+        The default implementation merely returns the value of the minsize
+        attribute.
+        """
         return self.minsize
     def make(self):
+        """
+        Recompute the layout of this widget
+
+        The default implementation reestablishes the input cursor position
+        (for example, after terminal resizes), removes "needs re-layout"
+        mark, and marks the widget for redrawing.
+        """
         self.valid_layout = True
         if self.grabbing:
             gr = list(self.grabbing)
@@ -561,8 +609,27 @@ class Widget(object):
             self.grab_input(rect, pos, None, self.grabbing_full)
         self.invalidate()
     def draw(self, win):
+        """
+        Redraw this widget
+
+        win is the curses window to draw to.
+        The default implementation does nothing beyond marking the widget as
+        redrawn.
+        """
         self.valid_display = True
     def grab_input(self, rect, pos=None, child=None, full=False):
+        """
+        Render this widget in charge of input
+
+        rect is the rectangle that should be visible with respect to that
+        (for example, the active input area); pos is where to place the
+        cursor (or None to hide it); child is the child widget the request
+        originated from (if any); full is whether *all* input should be
+        grabbed.
+        The default implementation stores the specified values in the
+        corresponding instance attributes and propagates the request to
+        the parent.
+        """
         if rect is None or child is not None:
             self.grabbing = None
             self.grabbing_full = False
@@ -576,23 +643,83 @@ class Widget(object):
                 self.cursor_pos = subpos(pos, self.pos)
         self.parent.grab_input(rect, pos, self, full)
     def event(self, event):
+        """
+        Handle an input event
+
+        Events are tuples, with the first item denoting the event "type" and
+        subsequent elements containing additional information. The first
+        element of the event can be:
+        a string   : The user pressed the key denoted by the string.
+        an integer : The user pressed the (special) key denoted by the
+                     integer; uses curses' means to determine which it is.
+                     Can in particular be KEY_MOUSE (if the mouse is
+                     enabled; the second element of the event contains the
+                     result of curses.getmouse()), but not KEY_RESIZE (that
+                     is handled by WidgetRoot).
+        a singleton: If the event does not correspond to either of above,
+                     an instance of the Event class can be used for further
+                     event types, notably FocusEvent (the second item of the
+                     event then contains whether the widget is now focused or
+                     not).
+        The method returns whether the event has been "consumed" by the
+        widget; some containers handle events on their own if the children do
+        not, so set this carefully.
+
+        The default implementation reset the grabbing state if focus is lost.
+        """
         if event[0] == FocusEvent and not event[1]:
             self.grabbing = None
             self.grabbing_full = False
             self.cursor_pos = None
         return False
     def focus(self, rev=False):
+        """
+        Perform focus traversal
+
+        rev tells whether the traversal should be "forward" (rev is false) or
+        "backward" (rev is true). Returns whether the traversal has stopped
+        "inside" the widget and should not continue at parents.
+        Widgets that are not focusable should return False unconditionally;
+        widgets that only have two focus states should toggle their focus
+        status and return whether they are focused now; widgets that have
+        multiple focusable parts should advance focus amongst those and
+        return correspondingly as well.
+
+        The default implementation assumes an unfocusable widget and behaves
+        accordingly (i.e. returns False).
+        """
         return False
     def invalidate(self, rec=False, child=None):
+        """
+        Mark this widget as in need of a redraw
+
+        rec is whether the entire widget tree should be invalidated; child
+        is the child the invalidation request originated from (if from one).
+        The standard implementation sets the valid_display attribute to
+        False and propagates the request to the parent widget if this widget
+        had been "valid" before.
+        """
         ov, self.valid_display = self.valid_display, False
         if ov: self.parent.invalidate(child=self)
     def invalidate_layout(self):
+        """
+        Mark this widget as in need of a re-layout
+
+        The standard implementation sets the valid_layout attribute to False
+        and propagates the request to the parent.
+        """
         ov, self.valid_layout = self.valid_layout, False
         if ov: self.parent.invalidate_layout()
     def _delete_layout(self):
+        "Remove the widget from its container"
         if self.parent is not None:
             self.parent.remove(self)
     def delete(self):
+        """
+        Remove this widget from the hierarchy
+
+        The standard implementation removes the widget from its container.
+        """
         self._delete_layout()
 
 class Container(Widget):
