@@ -723,44 +723,120 @@ class Widget(object):
         self._delete_layout()
 
 class Container(Widget):
+    """
+    A widget "containing" others
+
+    A container is responsible for the management, layout, and rendering of
+    its children. Children may expect to be laid out at (unconditionally) no
+    less than their minimum size, and preferably at their preferred size.
+    The minimum and preferred sizes of the container should be chosen such
+    that this is possible.
+
+    This class provides default implementations for all methods expected on
+    "container" widgets. In particular, the children are "stacked" on top of
+    each other, assuming the position and size of the container and being
+    rendered (and tab-traversed) in the order of insertion. Specific
+    subclasses of Container are available with more sophisticated layout
+    algorithms.
+
+    Attributes:
+    children: The list of children held by this widget. Should not be
+              manipulated directly.
+    """
     def __init__(self, **kwds):
+        """
+        Initializer
+
+        See Widget.__init__() for more detail.
+        """
         Widget.__init__(self, **kwds)
         self.children = []
         self._focused = None
         self._cprefsize = None
         self._cminsize = None
     def getminsize(self):
+        """
+        Calculate the minimum size of the container
+
+        The standard implementation calls layout_minsize(), ensures the
+        result is no less than the minsize attribute, and caches the result.
+        """
         if not self._cminsize:
             self._cminsize = self.layout_minsize()
         return maxpos(self.minsize, self._cminsize)
     def getprefsize(self):
+        """
+        Calculate the minimum size of the container
+
+        The standard implementation calls layout_prefsize(), ensures the
+        result is no less than the minsize attribute, and caches the result.
+        """
         if not self._cprefsize:
             self._cprefsize = self.layout_prefsize()
         return maxpos(self.minsize, self._cprefsize)
     def layout_minsize(self):
+        """
+        Calculate the absolute minimum size of the container
+
+        This method should be overridden as part of the concrete class'
+        layout algorithm.
+        """
         wh = (0, 0)
         for i in self.children: wh = maxpos(wh, i.getminsize())
         return wh
     def layout_prefsize(self):
+        """
+        Calculate the preferred size of the container
+
+        This method should be overridden as part of the concrete class'
+        layout algorithm.
+        """
         wh = (0, 0)
         for i in self.children: wh = maxpos(wh, i.getprefsize())
         return wh
     def make(self):
+        """
+        Perform layout
+
+        The standard implementation aborts if the container is (already)
+        valid, calls the relayout() method, invokes the make() methods
+        of all children recursively, and marks the container as valid.
+        """
         if self.valid_layout: return
         self.relayout()
         for i in self.children:
             i.make()
         Widget.make(self)
     def relayout(self):
+        """
+        Perform the actual layout of children
+
+        This method should be overridden as part of the concrete class'
+        layout algorithm.
+        """
         for i in self.children:
             i.pos = self.pos
             i.size = minpos(self.size, i.getprefsize())
     def draw(self, win):
+        """
+        Draw this container to the given window
+
+        The standard implementation aborts if already valid, draws all
+        children recursively, and marks the container as valid.
+        Subclasses may hook this to display additional UI elements.
+        """
         if self.valid_display: return
         for i in self.children:
             i.draw(win)
         Widget.draw(self, win)
     def event(self, event):
+        """
+        Process input events directed to this widget
+
+        The standard implementation initiates focus traversal (if this did
+        not happen at a higher level in the hierarchy), handles focus
+        events, and forwards events to the currently focused child otherwise.
+        """
         ret = Widget.event(self, event)
         if event[0] == FocusEvent:
             if not event[1]:
@@ -775,6 +851,15 @@ class Container(Widget):
         else:
             return ret
     def focus(self, rev=False):
+        """
+        Perform focus traversal
+
+        rev indicates whether the traversal should be reversed or no.
+        The standard implementation first relays traversal to the focused
+        child (if any), then attempts successive children (preceding /
+        following it in insertion order) until one is found that takes the
+        focus, or reports failure to the caller.
+        """
         if not self.children:
             return False
         elif self._focused is not None:
@@ -794,17 +879,37 @@ class Container(Widget):
         self._refocus(None)
         return False
     def invalidate(self, rec=False, child=None):
+        """
+        Mark this widget as in need of a redraw
+
+        rec tells whether the invalidation should propagate to all children
+        of the container; child tells which (direct) child of the container
+        the invalidation originated at.
+        The standard implementation actually marks the container itself and
+        propagates the event to the children if rec is true.
+        Subclasses may need to hook this to reset cached state.
+        """
         Widget.invalidate(self, rec, child)
         if rec:
             for i in self.children:
                 i.invalidate(rec)
     def invalidate_layout(self):
+        """
+        Mark this widget as in need of a layout refresh
+
+        The standard implementation actually marks the container as such,
+        propagates the request to the parent (if that has not happened yet),
+        clears cached values, and propagates the invalidation to all
+        children.
+        Subclasses may need to hook this to reset cached state.
+        """
         Widget.invalidate_layout(self)
         self._cminsize = None
         self._cprefsize = None
         for w in self.children:
             w.invalidate_layout()
     def _refocus(self, new):
+        "Helper method to properly switch focus between two children"
         if new is self._focused: return
         if self._focused is not None:
             self._focused.event((FocusEvent, False))
@@ -812,18 +917,41 @@ class Container(Widget):
         if self._focused is not None:
             self._focused.event((FocusEvent, True))
     def add(self, widget, **config):
+        """
+        Add the given widget to the container
+
+        config may contain further detail on the role of the widget in
+        this container.
+        The default implementation ignores config, removes the widget
+        from its previous parent (if any), installs it as a child of
+        the container, and invalidates the latter.
+        """
         widget._delete_layout()
         self.children.append(widget)
         widget.parent = self
         self.invalidate_layout()
         return widget
     def remove(self, widget):
+        """
+        Remove the widget from the container
+
+        The standard implementation removes the widget from the container,
+        resets the focus if it had previously beed at the widget, and
+        invalidates the container.
+        The invalidation of layout-related state should be handled at
+        invalidate_layout() (unless positive reasons exist to do so here).
+        """
         self.children.remove(widget)
         if self._focused is widget:
             self._focused = None
         widget.parent = None
         self.invalidate_layout()
     def clear(self):
+        """
+        Remove all children from this container
+
+        The standard implementation calls remove() for each child.
+        """
         for i in self.children[:]:
             self.remove(i)
 
