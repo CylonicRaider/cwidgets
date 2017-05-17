@@ -956,11 +956,22 @@ class Container(Widget):
             self.remove(i)
 
 class SingleContainer(Container):
+    """
+    A container holding no more than one child
+
+    Adding a child when one is already present removes the former one.
+    """
     def __init__(self, **kwds):
+        "Initializer"
         Container.__init__(self, **kwds)
         self._chms = None
         self._chps = None
     def _child_minsize(self, **kwds):
+        """
+        Get the minimum size of the child, or (0, 0) if none
+
+        This is a helper method aimed at subclasses.
+        """
         if self._chms is not None:
             pass
         elif not self.children:
@@ -969,6 +980,11 @@ class SingleContainer(Container):
             self._chms = self.children[0].getminsize()
         return self._chms
     def _child_prefsize(self):
+        """
+        Get the preferred size of the child, or (0, 0) if none
+
+        This is a helper method aimed at subclasses.
+        """
         if self._chps is not None:
             pass
         elif not self.children:
@@ -977,43 +993,94 @@ class SingleContainer(Container):
             self._chps = self.children[0].getprefsize()
         return self._chps
     def add(self, widget, **config):
+        "Add a child"
         while self.children:
             self.remove(self.children[0])
         return Container.add(self, widget, **config)
     def invalidate_layout(self):
+        "Signal the need of a relayout"
         Container.invalidate_layout(self)
         self._chms = None
         self._chps = None
 
 class VisibilityContainer(SingleContainer):
+    """
+    A container that can hide its only child
+
+    The child can be in one of the three visibility states (as set by the
+    corresponding attribute):
+    VIS_VISIBLE : The child is normally visible.
+    VIS_HIDDEN  : The child is not visible, but still takes up space.
+    VIS_COLLAPSE: The container's minimum size collapses to zero.
+    """
     class Visibility(Constant):
         "A mode of widget visibility"
     VIS_VISIBLE = Visibility('VIS_VISIBLE')
     VIS_HIDDEN = Visibility('VIS_HIDDEN')
     VIS_COLLAPSE = Visibility('VIS_COLLAPSE')
     def __init__(self, **kwds):
+        "Initializer"
         SingleContainer.__init__(self, **kwds)
         self.visibility = kwds.get('visibility', self.VIS_VISIBLE)
     def getminsize(self):
+        "Get the minimum size"
         if self.visibility == self.VIS_COLLAPSE:
             return (0, 0)
         else:
             return SingleContainer.getminsize(self)
     def getprefsize(self):
+        "Get the preferred size"
         if self.visibility == self.VIS_COLLAPSE:
             return (0, 0)
         else:
             return SingleContainer.getprefsize(self)
     def draw(self, win):
+        """
+        Draw this widget to the given window
+
+        The standard implementation skips rendering if the child is not
+        VISIBLE, and forwards to the draw_inner() method otherwise.
+        """
         if self.visibility != self.VIS_VISIBLE or self.valid_display:
             return
         self.draw_inner(win)
     def draw_inner(self, win):
+        """
+        Actually draw this widget to the given window
+
+        Overriding the drawing behavior should happen here.
+        """
         SingleContainer.draw(self, win)
 
 class BoxContainer(VisibilityContainer):
+    """
+    A VisiblityContainer implementing the CSS box model
+
+    This container puts a margin, border, and padding around its child (in
+    addition to being able to change its visibility). The margin and padding
+    are four-tuples of top/right/bottom/left spacings to be used around the
+    respective edge of the child; shorter tuples (or scalars) are interpreted
+    similarly to CSS. Specifying None as one of those makes the corresponding
+    inset flexible, i.e. it absorbs any space left along the corresponding
+    axis (*both* vertical and horizontal), or half if the opposite inset is
+    flexible as well. If both the margin and the padding along a certain axis
+    are flexible, the margin takes precedence. In contrast to those, the
+    border always has a fixed width, of either zero or one; where it is
+    present, it is filled with appropriate box-drawing characters.
+
+    Attributes are:
+    margin     : The margin width.
+    border     : The border width.
+    padding    : The padding width.
+    attr_margin: The attribute to fill the margin with.
+    ch_margin  : The character used for filling the margin.
+    attr_box   : The attribute to use for the border, padding, and as a
+                 background for the content.
+    ch_box     : The character to fill the background with.
+    """
     @classmethod
     def calc_pads_1d(cls, outer, margin, border, padding, size, minsize):
+        "Helper method for layout calculations"
         def inset(avl, pad, prefsize, minsize):
             free = avl[1] - prefsize
             if free < 0:
@@ -1040,6 +1107,7 @@ class BoxContainer(VisibilityContainer):
         return ret
     @classmethod
     def calc_pads(cls, outer, margin, border, padding, size, minsize):
+        "Helper method for layout calculations"
         pdsx = cls.calc_pads_1d(outer[0], margin[3::-2], border[3::-2],
                                 padding[3::-2], size[0], minsize[0])
         pdsy = cls.calc_pads_1d(outer[1], margin[::2], border[::2],
@@ -1047,6 +1115,7 @@ class BoxContainer(VisibilityContainer):
         return ((pdsx[0][0], pdsy[0][0], pdsx[0][1], pdsy[0][1]),
                 (pdsx[1][0], pdsy[1][0], pdsx[1][1], pdsy[1][1]))
     def __init__(self, **kwds):
+        "Initializer"
         VisibilityContainer.__init__(self, **kwds)
         self.margin = parse_quad(kwds.get('margin', 0))
         self.border = parse_quad(kwds.get('border', 0))
@@ -1058,6 +1127,7 @@ class BoxContainer(VisibilityContainer):
         self._box_rect = None
         self._widget_rect = None
     def calc_insets(self):
+        "Helper method for layout calculations"
         # Lambda calculus!
         x = lambda d: lambda k: (lambda v: 0 if v is None else v)(d[k])
         m, b, p = x(self.margin), x(self.border), x(self.padding)
@@ -1066,12 +1136,15 @@ class BoxContainer(VisibilityContainer):
                 m(2) + bool(b(2)) + p(2),
                 m(3) + bool(b(3)) + p(3))
     def layout_minsize(self):
+        "Get the minimum size of this widget"
         chms, ins = self._child_minsize(), self.calc_insets()
         return inflate(chms, ins)
     def layout_prefsize(self):
+        "Get the preferred size of this widget"
         chps, ins = self._child_prefsize(), self.calc_insets()
         return inflate(chps, ins)
     def relayout(self):
+        "Perform the actual layout"
         chps, chms = self._child_prefsize(), self._child_minsize()
         br, wr = self.calc_pads(self.size, self.margin,
             list(map(bool, self.border)), self.padding, chps, chms)
@@ -1081,21 +1154,39 @@ class BoxContainer(VisibilityContainer):
             self.children[0].pos = self._widget_rect[:2]
             self.children[0].size = self._widget_rect[2:]
     def draw_inner(self, win):
+        "Actually draw this widget"
         BoxWidget.draw_box(win, self.pos, self.size, self.attr_margin,
                            self.ch_margin, False)
         BoxWidget.draw_box(win, self._box_rect[:2], self._box_rect[2:],
                            self.attr_box, self.ch_box, self.border)
         VisibilityContainer.draw_inner(self, win)
     def invalidate(self, rec=False, child=None):
+        "Mark this widget as in need of a redraw"
+        # The background is painted on top of everything.
         VisibilityContainer.invalidate(self, True, child)
     def invalidate_layout(self):
+        "Mark this widget as in need of a layout refresh"
         VisibilityContainer.invalidate_layout(self)
         self._box_rect = None
         self._widget_rect = None
 
 class AlignContainer(VisibilityContainer):
+    """
+    A VisibilityContainer that allows to align its content in its area
+
+    The child is rendered at its preferred size, with any excesss space
+    being distributed in accordance to the align and scale attributes:
+    align: A two-tuple of horizontal and vertical alignments for the child.
+           The ALIGN_* constants are usually used as mnemonics, but
+           intermediate values can be specified as well. The default is
+           to center the child.
+    scale: A two-tuple of horizontal and vertical scaling modes. The
+           default is (SCALE_COMPRESS, SCALE_COMPRESS), i.e. to render the
+           child at its preferred size.
+    """
     @classmethod
     def calc_wbox_1d(cls, pref, avl, scale, align):
+        "Helper method for layout calculations"
         if avl < pref:
             size = avl
         else:
@@ -1103,23 +1194,28 @@ class AlignContainer(VisibilityContainer):
         return (int((avl - size) * align), size)
     @classmethod
     def calc_wbox(cls, pref, avl, scale, align, pos=(0, 0)):
+        "Helper method for layout calculations"
         return shiftrect(sum(zip(
             cls.calc_wbox_1d(pref[0], avl[0], scale[0], align[0]),
             cls.calc_wbox_1d(pref[1], avl[1], scale[1], align[1])
             ), ()), pos)
     def __init__(self, **kwds):
+        "Initializer"
         VisibilityContainer.__init__(self, **kwds)
         self.scale = parse_pair(kwds.get('scale', SCALE_COMPRESS))
         self.align = parse_pair(kwds.get('align', ALIGN_CENTER))
         self._pads = (0, 0, 0, 0)
         self._wbox = None
     def getminsize(self):
+        "Get the minimum size of this widget"
         pms, sp = VisibilityContainer.getminsize(self), self._pads
         return (sp[3] + pms[0] + sp[1], sp[0] + pms[1] + sp[2])
     def getprefsize(self):
+        "Get the preferred size of this widget"
         pps, sp = VisibilityContainer.getminsize(self), self._pads
         return (sp[3] + pps[0] + sp[1], sp[0] + pps[1] + sp[2])
     def relayout(self):
+        "Perform a layout refresh"
         sp = self._pads
         if self._wbox is None:
             rchps = self._child_prefsize()
@@ -1132,17 +1228,31 @@ class AlignContainer(VisibilityContainer):
             self.children[0].size = (wb[2] - sp[3] - sp[1],
                                      wb[3] - sp[0] - sp[2])
     def invalidate_layout(self):
+        "Mark this widget as in need of a layout refresh"
         VisibilityContainer.invalidate_layout(self)
         self._wbox = None
 
 class TeeContainer(AlignContainer):
+    """
+    An AlignContainer that draws horizontal "tees" around its content
+
+    This is meant to be used in conjunction with MarginContainer.
+
+    Attributes are:
+    tees : A two-tuple of (integral) character codes to be displayed as the
+           "tees". Defaults to (curses.ACS_RTEE, curses.ACS_LTEE).
+    attrs: A two-tuple of attributes to be used for the tees. Defaults to
+           (0, 0).
+    """
     def __init__(self, **kwds):
+        "Initializer"
         AlignContainer.__init__(self, **kwds)
         self.tees = parse_pair(kwds.get('tees',
             (_curses.ACS_RTEE, _curses.ACS_LTEE)))
         self.attrs = parse_pair(kwds.get('attrs', 0))
         self._pads = (0, 1, 0, 1)
     def draw(self, win):
+        "Draw this widget to the given window"
         if self.valid_display: return
         sw = win.derwin(self._wbox[3], self._wbox[2],
                         self._wbox[1], self._wbox[0])
@@ -1152,6 +1262,23 @@ class TeeContainer(AlignContainer):
         AlignContainer.draw(self, win)
 
 class Viewport(SingleContainer, Scrollable):
+    """
+    A container showing only part of its child
+
+    A Viewport renders its child to an offscreen pad and then displays part
+    of it in its display area. Thus, the child can be (significantly) larger
+    than the viewport itself.
+
+    Attributes are:
+    restrict_size: Attempt to adapt the child to the viewport's size as far
+                   as possible.
+    cmaxsize     : The maximum size of the Viewport.
+    default_attr : The attribute to be used as the "default" attribute of the
+                   offscreen pad.
+    default_ch   : The "default" character of the offscreen pad.
+    background   : The background attribute of the offscreen pad.
+    background_ch: The background character of the offscreen pad.
+    """
     @classmethod
     def calc_shift(cls, offset, maxoffs, size, rect):
         ret = list(offset)
@@ -1163,6 +1290,7 @@ class Viewport(SingleContainer, Scrollable):
         ret[:] = (zbound(ret[0], maxoffs[0]), zbound(ret[1], maxoffs[1]))
         return ret
     def __init__(self, **kwds):
+        "Initializer"
         SingleContainer.__init__(self, **kwds)
         Scrollable.__init__(self)
         self.restrict_size = kwds.get('restrict_size', True)
@@ -1175,14 +1303,17 @@ class Viewport(SingleContainer, Scrollable):
         self.padsize = (0, 0)
         self._pad = None
     def getminsize(self):
+        "Obtain the minimum sie of this widget"
         ps, ms = SingleContainer.getminsize(self), self.cmaxsize
         return ((ps[0] if ms[0] is None else min(ps[0], ms[0])),
                 (ps[1] if ms[1] is None else min(ps[1], ms[1])))
     def getprefsize(self):
+        "Obtain the preferred size of this widget"
         ps, ms = SingleContainer.getprefsize(self), self.cmaxsize
         return ((ps[0] if ms[0] is None else min(ps[0], ms[0])),
                 (ps[1] if ms[1] is None else min(ps[1], ms[1])))
     def relayout(self):
+        "Perform a layout refresh"
         chps, chms = self._child_prefsize(), self._child_minsize()
         if self.children:
             if self.restrict_size:
@@ -1204,6 +1335,7 @@ class Viewport(SingleContainer, Scrollable):
             zbound(self.scrollpos[1], self.maxscrollpos[1]))
         self.on_scroll(oldpos)
     def draw(self, win):
+        "Draw this widget to the given window"
         if self.valid_display: return
         Widget.draw(self, win)
         chsz = self.padsize
@@ -1233,6 +1365,7 @@ class Viewport(SingleContainer, Scrollable):
                             self.pos[1] + self.size[1] - 1,
                             self.pos[0] + self.size[0] - 1)
     def event(self, event):
+        "Handle an event"
         ret = SingleContainer.event(self, event)
         if not ret:
             if self.scroll_event(event):
@@ -1240,6 +1373,7 @@ class Viewport(SingleContainer, Scrollable):
                 return True
         return ret
     def grab_input(self, rect, pos=None, child=None, full=False):
+        "Make this widget in charge of the focus"
         if rect is not None:
             oldpos = tuple(self.scrollpos)
             new_offset = self.calc_shift(oldpos, self.maxscrollpos,
@@ -1262,14 +1396,17 @@ class Viewport(SingleContainer, Scrollable):
             pos = addpos(effpos, pos)
         SingleContainer.grab_input(self, rect, pos, child, full)
     def invalidate(self, rec=False, child=None):
+        "Mark this widget as in need of a redraw"
         # Child is rendered to offscreen pad, and cannot be invalidated
         # by anything that happens to me (invalidated in draw() if
         # necessary).
         Widget.invalidate(self, rec, child)
     def invalidate_layout(self):
+        "Mark this widget as in need of a layout refresh"
         SingleContainer.invalidate_layout(self)
         self._pad = None
     def on_scroll(self, oldpos):
+        "Handle a scroll event"
         Scrollable.on_scroll(self, oldpos)
         if tuple(oldpos) != tuple(self.scrollpos):
             self.invalidate()
