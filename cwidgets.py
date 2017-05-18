@@ -1412,19 +1412,34 @@ class Viewport(SingleContainer, Scrollable):
             self.invalidate()
 
 class StackContainer(Container):
+    """
+    A container that draws its children on top of other in a defined order
+
+    Every widget is on a numbered "layer", with widgets on the same one
+    being drawn in insertion order. The default layer is integer zero, but
+    any object that implements ordering comparisons can be used. The children
+    are expanded to the size of the container.
+
+    The ordering is achieved by sorting the children list in place; be aware
+    of that.
+    """
     def __init__(self, **kwds):
+        "Initializer"
         Container.__init__(self, **kwds)
         self._layers = {}
     def layout_minsize(self):
+        "Calculate the minimum size of this widget"
         wh = (0, 0)
         for i in self.children: wh = maxpos(wh, i.getminsize())
         return wh
     def relayout(self):
+        "Perform a layout update"
         ps = self.getprefsize()
         for w in self.children:
             w.pos = self.pos
             w.size = self.size
     def invalidate(self, rec=False, child=None):
+        "Mark this container as in need of a redraw"
         if child in self.children:
             Container.invalidate(self, rec, child)
             idx = self.children.index(child)
@@ -1433,23 +1448,45 @@ class StackContainer(Container):
         else:
             Container.invalidate(self, True, child)
     def add(self, widget, **config):
+        """
+        Add another child to this container
+
+        The "layer" keyword argument can be passed to place the widget on a
+        non-default layer (the default being layer 0).
+        """
         Container.add(self, widget, **config)
         self._layers[widget] = config.get('layer', 0)
         self.children.sort(key=self._layers.__getitem__)
         return widget
     def remove(self, widget):
+        "Remove a widget from this container"
         Container.remove(self, widget)
         del self._layers[widget]
     def set_layer(self, widget, layer):
+        """
+        Set the layer the given widget should reside on
+
+        The layer argument denotes the new layer for the widget to be on;
+        pass 0 (integer zero) for the default.
+        """
         self._layers[widget] = layer
         self.children.sort(key=self._layers.__getitem__)
 
 class PlacerContainer(StackContainer):
+    """
+    A container that places its children at user defined-locations
+
+    The position for each widget must be specified during the add() call;
+    an optional size can be specified; the child's preferred size is used
+    otherwise.
+    """
     def __init__(self, **kwds):
+        "Initializer"
         StackContainer.__init__(self, **kwds)
         self._positions = {}
         self._sizes = {}
     def layout_prefsize(self):
+        "Get the preferred size of this container"
         wh = (0, 0)
         for i in self.children:
             s = self._sizes.get(i)
@@ -1457,6 +1494,7 @@ class PlacerContainer(StackContainer):
             wh = maxpos(wh, addpos(self._positions[i], s))
         return wh
     def relayout(self):
+        "Refresh the layout of this container"
         for w in self.children:
             w.pos = addpos(self.pos, self._positions[w])
             s = self._sizes[w]
@@ -1465,15 +1503,52 @@ class PlacerContainer(StackContainer):
             else:
                 w.size = s
     def add(self, widget, **config):
+        """
+        Add a child to the container
+
+        config can contain the following keyword arguments:
+        pos : The position where to put the child. REQUIRED.
+        size: The (optional) size to override the child's preferred size.
+        """
         self._positions[widget] = config['pos']
         self._sizes[widget] = config.get('size')
         return StackContainer.add(self, widget, **config)
     def remove(self, widget):
+        "Remove the given child from this container"
         StackContainer.remove(self, widget)
         del self._positions[widget]
         del self._sizes[widget]
 
 class MarginContainer(Container):
+    """
+    A container placing its children in nine "regions"
+
+    The regions form a 3x3 grid and should be referenced using the POS_*
+    constants defined on the class.
+    The widgets in the "outer" regions are laid out according to their
+    preferred size along those axes where they do not touch the center
+    region (in particular, the corners are thus along both axes), and
+    according to the remaining size along the other axes (thus, the widget
+    in the  center stretches/shrinks to accomodate changes of the
+    container's size). If the optional border specified, the corner widgets
+    are drawn *on top of it*, and all border regions have a size of at least
+    1x1.
+    If a child is inserted into a region that is already occupied, the
+    previous inhabitant is evicted, so that there always is at most one
+    child per region.
+    The purpose of this container is to accomodate bordered "panes", where
+    a title can be placed in the top region and scrollbars into the bottom
+    and right one, or dialog boxes with a title on top and buttons in the
+    bottom region (possibly offset from the border).
+
+    Attributes are:
+    border       : Whether to show a border.
+    insets       : Fixed offsets of the contents from the border. Can be
+                   used to push regions off the border.
+    background   : The attribute to display the box with (None for
+                   "transparent").
+    background_ch: The character to fill the box with (defaults to nothing).
+    """
     class Position(Constant):
         "The position of a widget in a MarginContainer's grid"
     POS_TOPLEFT  = Position('POS_TOPLEFT',  x=0, y=0)
@@ -1487,6 +1562,7 @@ class MarginContainer(Container):
     POS_BOTRIGHT = Position('POS_BOTRIGHT', x=2, y=2)
     @classmethod
     def calc_sizes(cls, full, minimum, preferred):
+        "Helper method for layout."
         sm, sp = sum(minimum), sum(preferred)
         diff = full - sp
         if diff >= 0:
@@ -1503,6 +1579,7 @@ class MarginContainer(Container):
                 preferred[1] + incs[1],
                 preferred[2] + incs[2])
     def __init__(self, **kwds):
+        "Initializer"
         Container.__init__(self, **kwds)
         self.border = parse_quad(kwds.get('border', False))
         self.insets = parse_quad(kwds.get('insets', 0))
@@ -1515,28 +1592,39 @@ class MarginContainer(Container):
         self._presizes = None
         self._boxes = None
     def layout_minsize(self):
+        "Calculate the minimum size of this container"
         self._make_preboxes()
         return self._minsize
     def layout_prefsize(self):
+        "Calculate the preferred size of this container"
         self._make_preboxes()
         return self._prefsize
     def relayout(self):
+        "Perform a layout refresh"
         self._make_boxes(self.size)
         for w, pos, size in self._boxes:
             w.pos = addpos(self.pos, pos)
             w.size = size
     def invalidate_layout(self):
+        "Mark this widget as in need of a layout refresh"
         Container.invalidate_layout(self)
         self._minsize = None
         self._prefsize = None
         self._presizes = None
         self._boxes = None
     def draw(self, win):
+        "Draw this widget to the given window"
         if self.valid_display: return
         BoxWidget.draw_box(win, self.pos, self.size, self.background,
                            self.background_ch, self.border)
         Container.draw(self, win)
     def add(self, widget, **config):
+        """
+        Add the given child to this container
+
+        The "slot" keyword argument (defaulting to POS_CENTER) can be used
+        to put the child into a particular slot.
+        """
         slot = config.get('slot', self.POS_CENTER)
         try:
             self.remove(self._revslots[slot])
@@ -1547,10 +1635,12 @@ class MarginContainer(Container):
         self._revslots[slot] = widget
         return ret
     def remove(self, widget):
+        "Remove this given child from this container"
         Container.remove(self, widget)
         del self._revslots[self._slots[widget]]
         del self._slots[widget]
     def _make_preboxes(self):
+        "Internal helper method for layout"
         if self._presizes is not None: return
         if not self.children:
             self._minsize = inflate((0, 0), self.insets)
@@ -1577,6 +1667,7 @@ class MarginContainer(Container):
         self._prefsize = inflate((sum(pws), sum(phs)), self.insets)
         self._presizes = (mws, mhs, pws, phs)
     def _make_boxes(self, size):
+        "Internal helper method for layout"
         if self._boxes is not None: return
         self._make_preboxes()
         mws, mhs, pws, phs = self._presizes
@@ -1592,6 +1683,61 @@ class MarginContainer(Container):
                 (ws[slot.x], hs[slot.y])))
 
 class LinearContainer(Container):
+    """
+    A container that lays out its children in one direction
+
+    The actual implementation is flexible enough to have groups of widgets
+    in different directions or diagonally; the VerticalContainer and
+    HorizontalContainer subclasses configure the machinery to be of practical
+    use.
+
+    The container has two "mode"s of layout (one per axis), which are chosen
+    from the the MODE_* class constants:
+    MODE_NORMAL     : Children are laid out at their preferred sizes. If
+                      there are children with nonzero "weights", they are
+                      expanded proportionally to fill the available space.
+                      If there are none, free space remains at the "end" of
+                      the container.
+    MODE_STRETCH    : Similar to MODE_NORMAL, except that all children are
+                      stretched uniformly instead of leaving free space.
+    MODE_EQUAL      : Children are laid out at equal sizes, gradually
+                      degrading to their preferred sizes if there is not
+                      enough additional space.
+    MODE_EQUAL_FORCE: Children are always laid out at equal sizes, at the
+                      cost of potentially high space consumption.
+
+    Each child has a "rule" that defines how its successor is placed:
+    RULE_STAY : The successor is placed "on top of" the current child.
+    RULE_RIGHT: The successor is placed on the right of the current child.
+    RULE_DOWN : The successor is placed below the current child.
+    RULE_DIAG : The successor is placed both below and to the right of the
+                current child.
+    Although the layour algorithm can cope with any combination of those,
+    typically, only RULE_RIGHT or RULE_DOWN are used, for all children
+    homogeneously (as do VerticalContainer and HorizontalContainer).
+
+    In addition, each child has a (growing) weight and a shrinking weight;
+    these (together with the mode) are used to determine how excess (or
+    lacking) space is distributed amongst the children. The growing weight
+    defaults to zero (so that a child would never grow in MODE_NORMAL); the
+    shrinking weights defaults to one (so that all children can be squished
+    to their minimum sizes if that be needed).
+
+    If there are multiple children occupying the same (x-axis or y-axis)
+    slot, the maximum of their minimum and preferred sizes, respectively, is
+    used for layout. Thus, in VerticalContainer and HorizontalContainer, the
+    minimum / preferred size along the "non-main" axis is the maximum of
+    of the minimum / preferred sizes along that axis.
+
+    Attributes of the container are:
+    default_rule: The default rule to use for a child. Defaults to RULE_STAY
+                  on LinearContainer and appropriate values on
+                  VerticalContainer and HorizontalContainer.
+    mode_x      : The layout mode to be used in the x direction. The default
+                  is MODE_STRETCH.
+    mode_y      : The layout mode to be used in the y direction. The default
+                  is MODE_STRETCH as well.
+    """
     class Rule(Constant):
         "An item's layout mode of LinearContainer"
     RULE_STAY = Rule('RULE_STAY', advances=(0, 0))
@@ -1606,6 +1752,7 @@ class LinearContainer(Container):
     MODE_EQUAL_FORCE = Mode('MODE_EQUAL_FORCE')
     @classmethod
     def _make_groups(cls, initial, mins, advances, weights, sweights):
+        "Internal layout helper"
         glengths, gmins, gsizes, gweights, gsweights = [], [], [], [], []
         first = True
         for i, m, a, w, s in zip(initial, mins, advances, weights, sweights):
@@ -1624,9 +1771,11 @@ class LinearContainer(Container):
         return (glengths, gmins, gsizes, gweights, gsweights)
     @classmethod
     def _unpack_groups(cls, values, lengths):
+        "Internal layout helper"
         return sum(((v,) * l for v, l in zip(values, lengths)), ())
     @classmethod
     def _shrink(cls, r, full, gmins, gsweights):
+        "Internal layout helper"
         while 1:
             indices, weights, diffs = [], [], []
             for i, w in enumerate(gsweights):
@@ -1646,6 +1795,7 @@ class LinearContainer(Container):
     @classmethod
     def _distrib_normal(cls, full, initial, mins, advances, weights,
                         sweights, mode):
+        "Internal layout helper"
         glengths, gmins, gsizes, gweights, gsweights = cls._make_groups(
             initial, mins, advances, weights, sweights)
         if sum(gweights) == 0:
@@ -1665,6 +1815,7 @@ class LinearContainer(Container):
     @classmethod
     def _distrib_equal(cls, full, initial, mins, advances, weights,
                        sweights, mode):
+        "Internal layout helper"
         glengths, gmins, gsizes, gweights, gsweights = cls._make_groups(
             initial, mins, advances, weights, sweights)
         distr = linear_distrib(full, len(advances))
@@ -1688,6 +1839,7 @@ class LinearContainer(Container):
     @classmethod
     def distribute(cls, full, initial, mins, advances, weights,
                    sweights, mode=MODE_NORMAL):
+        "Internal layout helper"
         if not (len(initial) == len(mins) == len(advances) == len(weights) ==
                 len(sweights)):
             raise ValueError('Incoherent lists given to distribute().')
@@ -1702,6 +1854,7 @@ class LinearContainer(Container):
         else:
             raise ValueError('Invalid mode: %r' % (mode,))
     def __init__(self, **kwds):
+        "Initializer"
         Container.__init__(self, **kwds)
         self.default_rule = kwds.get('default_rule', self.RULE_STAY)
         self.mode_x = kwds.get('mode_x', self.MODE_STRETCH)
@@ -1716,23 +1869,47 @@ class LinearContainer(Container):
         self._minsize = None
         self._boxes = None
     def layout_minsize(self):
+        "Calculate the minimum size of this container"
         self._make_preboxes()
         return self._minsize
     def layout_prefsize(self):
+        "Calculate the preferred size of this container"
         self._make_preboxes()
         return self._prefsize
     def relayout(self):
+        "Perform a layout refresh"
         self._make_boxes(self.size)
         for w, xy, wh in self._boxes:
             w.pos = addpos(self.pos, xy)
             w.size = wh
     def invalidate_layout(self):
+        "Mark this container as in need of a layout refresh"
         Container.invalidate_layout(self)
         self._preboxes = None
         self._prefsize = None
         self._minsize = None
         self._boxes = None
     def add(self, widget, **config):
+        """
+        Add a new child to the container
+
+        The following configuration parameters can be passed:
+        rule     : The advancement rule to be used for this child.
+                   Defaults to the default_rule attribute of the
+                   container.
+        weight   : The default for weight_x and weight_y; defaults
+                   itself to zero.
+        weight_x : The relative weight to be used when stretching the
+                   layout in the x direction.
+        weight_y : The relative weight to be used when stretching the
+                   layout in the y direction.
+        sweight  : The default for sweight_x and sweight_y; defaults
+                   itself to one.
+        sweight_x: The relative weight to be used when shrinking the
+                   layout in the x direction.
+        sweight_y: The relative weight to be used when shrinking the
+                   layout in the y direction.
+        """
         self._rules[widget] = config.get('rule', self.default_rule)
         w = config.get('weight', 0.0)
         self._weights_x[widget] = config.get('weight_x', w)
@@ -1742,6 +1919,7 @@ class LinearContainer(Container):
         self._sweights_y[widget] = config.get('sweight_y', sw)
         return Container.add(self, widget, **config)
     def remove(self, widget):
+        "Remove a child from this container"
         Container.remove(self, widget)
         del self._rules[widget]
         del self._weights_x[widget]
@@ -1749,6 +1927,7 @@ class LinearContainer(Container):
         del self._sweights_x[widget]
         del self._sweights_y[widget]
     def _make_preboxes(self):
+        "Internal layout helper"
         if self._preboxes is not None: return
         cpp, cpm, mps, mms = (0, 0), (0, 0), (0, 0), (0, 0)
         amnt, tps, tms = [0, 0], (0, 0), (0, 0)
@@ -1773,6 +1952,7 @@ class LinearContainer(Container):
         self._prefsize = tps
         self._minsize = tms
     def _make_boxes(self, size):
+        "Internal layout helper"
         if self._boxes is not None: return
         self._make_preboxes()
         if len(self._preboxes) == 0:
@@ -1804,17 +1984,50 @@ class LinearContainer(Container):
                   cp[1] + s[1] * r.advances[1])
 
 class HorizontalContainer(LinearContainer):
+    """
+    A container arranging its children horizontally
+
+    The is a LinearContainer whose default rule is RULE_RIGHT. The "mode_x"
+    constructor argument is aliased to "mode".
+    """
     def __init__(self, **kwds):
+        "Initializer"
         if 'mode' in kwds: kwds.setdefault('mode_x', kwds['mode'])
         LinearContainer.__init__(self, default_rule=self.RULE_RIGHT, **kwds)
 
 class VerticalContainer(LinearContainer):
+    """
+    A container arranging its children vertically
+
+    The is a LinearContainer whose default rule is RULE_DOWN. The "mode_y"
+    constructor argument is aliased to "mode".
+    """
     def __init__(self, **kwds):
+        "Initializer"
         if 'mode' in kwds: kwds.setdefault('mode_y', kwds['mode'])
         LinearContainer.__init__(self, default_rule=self.RULE_DOWN, **kwds)
 
 class GridContainer(Container):
+    """
+    A container that lays out its children as a grid
+
+    This class reuses the layout algorithms from LinearContainer; see there
+    for the different layout "modes".
+    For vertical/horizontal layout, columns/rows are regarded as unities for
+    layout purposes, and have common growing and shrinking weights, as well
+    as user-definable minimum sizes. Layout along the vertical axis is
+    independent from that along the horizontal one.
+    Each grid cell can be populated by at most one child; trying to add
+    another one will evict the previous one.
+
+    Attributes are:
+    mode_x: Layout mode to be used along the X axis. See LinearContainer for
+            details.
+    mode_y: Layout mode to be used along the Y axis. See LinearContainer for
+            details.
+    """
     def __init__(self, **kwds):
+        "Initializer"
         Container.__init__(self, **kwds)
         self.mode_x = kwds.get('mode_x', LinearContainer.MODE_STRETCH)
         self.mode_y = kwds.get('mode_y', LinearContainer.MODE_STRETCH)
@@ -1829,12 +2042,15 @@ class GridContainer(Container):
         self._offsets = None
         self._sizes = None
     def layout_minsize(self):
+        "Calculate the minimum size of this container"
         self._make_presizes()
         return self._minsize
     def layout_prefsize(self):
+        "Calculate the preferred size of the container"
         self._make_presizes()
         return self._prefsize
     def relayout(self):
+        "Perform a layout refresh"
         self._make_sizes(self.size)
         ofx, ofy = self._offsets
         szx, szy = self._sizes
@@ -1842,6 +2058,7 @@ class GridContainer(Container):
             w.pos = addpos(self.pos, (ofx[pos[0]], ofy[pos[1]]))
             w.size = (szx[pos[0]], szy[pos[1]])
     def invalidate_layout(self):
+        "Mark this widget as in need of a layout refresh"
         Container.invalidate_layout(self)
         self._presizes = None
         self._minsizes = None
@@ -1849,6 +2066,12 @@ class GridContainer(Container):
         self._minsize = None
         self._sizes = None
     def add(self, widget, **config):
+        """
+        Add a child to the container
+
+        The mandatory "pos" keyword argument specifies into which cell to
+        put the child.
+        """
         pos = config['pos']
         try:
             self.remove(self._widgets[pos])
@@ -1858,10 +2081,12 @@ class GridContainer(Container):
         self._places[widget] = pos
         return Container.add(self, widget, **config)
     def remove(self, widget):
+        "Remove a child from the container"
         Container.remove(self, widget)
         pos = self._places.pop(widget)
         del self._widgets[pos]
     def _config(self, d, idx, kwds):
+        "Internal helper"
         conf = d.setdefault(idx, {'weight': 0, 'sweight': 1, 'minsize': 0})
         if 'weight' in kwds:
             conf['weight'] = kwds['weight']
@@ -1871,10 +2096,27 @@ class GridContainer(Container):
             conf['minsize'] = kwds['minsize']
         self.invalidate_layout()
     def config_row(self, row, **kwds):
+        """
+        Configure a row
+
+        Keyword arguments are:
+        weight : The growing weight of the row.
+        sweight: The shrinking weight of the row.
+        minsize: The minimum size of the row.
+        """
         self._config(self._rowConfig, row, kwds)
     def config_col(self, col, **kwds):
+        """
+        Configure a column
+
+        Keyword arguments are:
+        weight : The growing weight of the column.
+        sweight: The shrinking weight of the column.
+        minsize: The minimum size of the column.
+        """
         self._config(self._columnConfig, col, kwds)
     def _make_presizes(self):
+        "Internal layout helper"
         if self._presizes is not None: return
         psx, psy, msx, msy = [], [], [], []
         for pos, w in self._widgets.items():
@@ -1914,6 +2156,7 @@ class GridContainer(Container):
         self._prefsize = tps
         self._minsize = tms
     def _make_sizes(self, size):
+        "Internal layout helper"
         if self._sizes is not None: return
         self._make_presizes()
         # Distribute sizes
