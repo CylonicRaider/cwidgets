@@ -2198,7 +2198,7 @@ class BoxWidget(Widget):
             sw = win.derwin(size[1], size[0], pos[1], pos[0])
         except _curses.error:
             return
-        if not attr is None:
+        if attr is not None:
             sw.bkgd(ch, attr)
             sw.clear()
         if border == True:
