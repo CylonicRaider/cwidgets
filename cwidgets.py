@@ -2190,8 +2190,37 @@ class GridContainer(Container):
         self._offsets = (ofx, ofy)
 
 class BoxWidget(Widget):
+    """
+    A widget whose contents can be enclosed in a box-like border
+
+    This class is meant to be extended with more specific functionality by
+    subclasses.
+
+    Attributes are:
+    border       : Whether to display the border. Should be an actual bool
+                   instance. Defaults to False.
+    background   : The background attribute to fill the area of the widget
+                   with. Can be None to indicate that it should be
+                   "transparent", which is the default.
+    background_ch: The character to be used for filling the background.
+    """
     @staticmethod
     def draw_box(win, pos, size, attr, ch, border):
+        """
+        Draw a possibly bordered box to the given curses window
+
+        Arguments are:
+        win   : The window to draw to.
+        pos   : The top-left corner of the box.
+        size  : The size of the box.
+        attr  : If not None, which attribute to fill the box (and draw the
+                border) with.
+        ch    : The character to use for filling the box.
+        border: If a boolean, specifies whether to draw a border from
+                box-drawing characters inside the box. If an iterable (must
+                have four items), specifies whether to draw each of the
+                top/right/bottom/left parts of the border.
+        """
         if pos[0] < 0 or pos[1] < 0 or size[0] <= 0 or size[1] <= 0:
             return
         try:
@@ -2234,18 +2263,49 @@ class BoxWidget(Widget):
         if border[3] and border[0]:
             sw.addch(0, 0, _curses.ACS_ULCORNER)
     def __init__(self, **kwds):
+        "Initializer"
         Widget.__init__(self, **kwds)
         self.background = kwds.get('background', None)
         self.background_ch = kwds.get('background_ch', '\0')
         self.border = kwds.get('border', False)
     def draw(self, win):
+        "Draw this widget to the given window"
         if self.valid_display: return
         Widget.draw(self, win)
         self.draw_box(win, self.pos, self.size, self.background,
                       self.background_ch, self.border)
 
 class TextWidget(BoxWidget, Scrollable):
+    """
+    A widget that displays text
+
+    TextWidget contains the algorithms for laying out (possibly multiline)
+    text within a widget. Unicode support is limited, and bounded by the
+    underlying curses library and the terminal. This class is meant to be
+    extended by subclasses.
+
+    TextWidget supports a (class-specific) "prefix" and "suffix" for the
+    text, which can be used as visual cues for the role of a widget. For
+    example, buttons have "<" and ">" as such. Checkboxes use the prefix
+    to display the current status. A TextWidget is scrollable, and can
+    hence be immediately bound to scrollbars; this is recommended instead
+    of putting it into a Viewport (in particular for multi-line entry boxes,
+    which do not fully function otherwise).
+
+    Attributes are:
+    text    : Which text to display.
+    attr    : Which attribute to display the text with.
+    textbg  : Which attribute to use as a background for the text. If
+              specified, this covers most of the widget area (except the
+              border, if enabled, and the columns below/above the
+              class-specific prefix and suffix).
+    textbgch: Which character to fill the "text background" with.
+    align   : How to align the text. Can be a single alignment, which is
+              use for both axes, or a (horizontal, pair) pair. The default
+              is (ALIGN_LEFT, ALIGN_TOP).
+    """
     def __init__(self, text='', **kwds):
+        "Initializer"
         BoxWidget.__init__(self, **kwds)
         Scrollable.__init__(self)
         self.attr = kwds.get('attr', 0)
@@ -2261,12 +2321,14 @@ class TextWidget(BoxWidget, Scrollable):
         self._prefsize = None
         self.contentsize = (0, 0)
     def getprefsize(self):
+        "Calculate the preferred size of this widget"
         # Force calculation of the relevant values.
         self.text = self._text
         ps, cm = self._prefsize, self.cmaxsize
         return (ps[0] if cm[0] is None else min(ps[0], cm[0]),
                 ps[1] if cm[1] is None else min(ps[1], cm[1]))
     def _update_indents(self):
+        "Internal layout helper"
         self.text = self._text
         i = (1 if self.border else 0)
         tp, ctp = self._text_prefix()
@@ -2278,11 +2340,13 @@ class TextWidget(BoxWidget, Scrollable):
                               for l in self._lines)
         self._vindent = int((eh - len(self._lines)) * self.align[1])
     def make(self):
+        "Perform a layout refresh on this widget"
         BoxWidget.make(self)
         self._update_indents()
         self.maxscrollpos = subpos(self._prefsize, self.size)
         self.contentsize = maxpos(self._prefsize, self.size)
     def draw(self, win):
+        "Draw this widget to the given window"
         if self.valid_display: return
         BoxWidget.draw(self, win)
         self.text = self._text
@@ -2316,11 +2380,39 @@ class TextWidget(BoxWidget, Scrollable):
             win.addstr(self.pos[1] + i + h - 1, self.pos[0] + i + w +
                        len(pref), suff, self.attr)
     def _text_prefix(self):
+        """
+        Obtain the "text prefix" of this widget
+
+        The prefix is put before the first line of the widget's text on
+        display and does not participate in scrolling; see the class
+        description for behavioral details.
+        Returns a two-tuple of a required and an optional part (in that
+        order); the optional part is not shown when the widget's text is
+        empty (for example, a checkbox without text does not have any
+        unintended "margins").
+        The default implementation returns two empty strings.
+        """
         return ('', '')
     def _text_suffix(self):
+        """
+        Obtain the "text suffix" of this widget
+
+        The suffix is similar to the prefix, but displayed after the
+        last line of the text.
+        Returns a two-tuple of an optional and a required part (in that
+        order); the optional part is not shown when the widget's text is
+        empty.
+        The default implementation returns two empty strings.
+        """
         return ('', '')
     @property
     def text(self):
+        """
+        The textual content of this widget
+
+        Assigning to this automatically updates the widget; no further steps
+        are necessary.
+        """
         return self._text
     @text.setter
     def text(self, text):
@@ -2341,10 +2433,35 @@ class TextWidget(BoxWidget, Scrollable):
         self._prefsize = tuple(ps)
         self.invalidate_layout()
 
-class Label(TextWidget): pass
+class Label(TextWidget):
+    """
+    A mere piece of text
+
+    This widget does not override any of TextWidget's functionality, and
+    should be used when nothing further is desired.
+    """
 
 class Button(TextWidget):
+    """
+    A UI element that can be focused and "invoked", performing some action
+
+    The "attr" attribute is replaced by attr_normal or attr_active depending
+    on the focus status of the button; assigning it leads to erratic behvior.
+
+    A button can be tabbed to to become focused, and then invoked by pressing
+    Return or Space. What the button does is specified by the programmer, and
+    should be deducible from its text (and perhaps context).
+
+    Additional attributes are:
+    callback   : A nullary function to be invoked when the button is
+                 activated.
+    attr_normal: The attribute to use for the text when the button is not
+                 focused.
+    attr_focus : The attribute to use for the text when the button is
+                 focused.
+    """
     def __init__(self, text='', callback=None, **kwds):
+        "Initializer"
         TextWidget.__init__(self, text, **kwds)
         self.attr_normal = kwds.get('attr_normal', 0)
         self.attr_active = kwds.get('attr_active', _curses.A_STANDOUT)
@@ -2352,6 +2469,7 @@ class Button(TextWidget):
         self.attr = self.attr_normal
         self.focused = False
     def event(self, event):
+        "Handle an input event"
         ret = TextWidget.event(self, event)
         if event[0] in (_KEY_RETURN, ' '):
             self.on_activate()
@@ -2360,33 +2478,62 @@ class Button(TextWidget):
             self._set_focused(event[1])
         return ret
     def focus(self, rev=False):
+        "Perform focus traversal"
         return (not self.focused)
     def _text_prefix(self):
+        "Return the text prefix"
         return ('<', '')
     def _text_suffix(self):
+        "Return the text suffix"
         return ('', '>')
     def _set_focused(self, state):
+        "Internal focus helper"
         if self.focused == state: return
         self.focused = state
         self.on_focuschange()
         self.invalidate()
     def on_focuschange(self):
+        """
+        Handle a change of focus
+        """
         self.attr = (self.attr_active if self.focused else self.attr_normal)
         if self.focused:
             self.grab_input(self.rect, self.pos)
     def on_activate(self):
+        """
+        Handle an activation of the button
+
+        Subclasses should implement their behavior here instead of replacing
+        the callback.
+        """
         if self.callback is not None:
             self.callback()
 
 class ToggleButton(Button):
+    """
+    A button that can alternate between multiple "states"
+
+    This is a base class meant to be extended by subclasses, and does not
+    actually implement any specific mode of alteration.
+
+    Additional attributes are:
+    state: The state this widget is in.
+    """
     def __init__(self, text='', **kwds):
+        "Initializer"
         Button.__init__(self, text, **kwds)
         self._state = kwds.get('state', None)
         self._state_set = False
     def _set_state(self, value):
+        """
+        Switch to the given state
+
+        This can be extended by subcclasses to implement custom behavior.
+        """
         self._state = value
     @property
     def state(self):
+        "The state this widget is currently in"
         if not self._state_set: self.state = self._state
         return self._state
     @state.setter
@@ -2395,41 +2542,68 @@ class ToggleButton(Button):
         self._set_state(value)
 
 class CheckBox(ToggleButton):
+    """
+    A UI element that can be toggled between "on" and "off" states
+
+    The concrete interpretation of the state is up to the programmer;
+    generally, if the checkbox is enabled, whatever is described by
+    its label should "apply", and do "not apply" otherwise.
+    """
     def _set_state(self, value):
+        "Change the state of this widget to another"
         ToggleButton._set_state(self, value)
         self.invalidate()
     def _text_prefix(self):
+        """
+        The text prefix of this widget
+
+        Used to display the state of the checkbox.
+        """
         if self._state:
             return ('[X]', ' ')
         else:
             return ('[ ]', ' ')
     def _text_suffix(self):
+        "The text suffix of this widget"
         return ('', '')
     def on_activate(self):
+        "Handle the invocation of this widget by the user"
         ToggleButton.on_activate(self)
         self.state = (not self.state)
 
 class RadioBox(ToggleButton):
+    """
+    A UI element that is part of a mutually exclusive group
+
+    Of a RadioGroup (see the corresponding class), only one RadioBox can
+    be chosen at a time.
+    """
     def __init__(self, text='', **kwds):
+        "Initializer"
         ToggleButton.__init__(self, text, **kwds)
         self.group = None
     def delete(self):
+        "Remove this widget from the hierarchy"
         ToggleButton.delete(self)
         if self.group:
             self.group.remove(self)
     def _set_state(self, value):
+        "Change the chosenness state of this widget"
         ToggleButton._set_state(self, value)
         if self.group:
             self.group.on_set(self, value)
         self.invalidate()
     def _text_prefix(self):
+        "Return the text prefix of this widget"
         if self._state:
             return ('(*)', ' ')
         else:
             return ('( )', ' ')
     def _text_suffix(self):
+        "Return the text suffix of this widget"
         return ('', '')
     def on_activate(self):
+        "Handle the invocation of this widget by the user"
         ToggleButton.on_activate(self)
         self.state = True
 
