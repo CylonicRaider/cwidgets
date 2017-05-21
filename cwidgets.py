@@ -2608,21 +2608,66 @@ class RadioBox(ToggleButton):
         self.state = True
 
 class EntryBox(TextWidget):
-    def __init__(self, text='', callback=None, **kwds):
+    """
+    An editable TextWidget
+
+    This class implements editing of its content by the user. For the
+    supported editing actions, see the event() method.
+
+    Attributes are:
+    attr_normal   : Which attribute to use for the teext when the entry is
+                    not focused.
+    attr_active   : Which attribute to use for the text when the entry is
+                    focused.
+    multiline     : Whether the input may have multiple lines. If false,
+                    pressing Return is handled similarly to the Button class.
+    backspace_hack: Whether to interpret the DEL character (127) equivalently
+                    to Backspace. Since the "backspace" key normally produces
+                    that code, this defaults to True.
+    callback      : A nullary function to be invoked when this is a
+                    single-line input and the user pressed Return.
+    """
+    def __init__(self, text='', **kwds):
+        "Initializer"
         TextWidget.__init__(self, text, **kwds)
         self.attr_normal = kwds.get('attr_normal', 0)
         self.attr_active = kwds.get('attr_active', _curses.A_STANDOUT)
         self.multiline = kwds.get('multiline', False)
         self.backspace_hack = kwds.get('backspace_hack', True)
-        self.callback = callback
+        self.callback = kwds.get('callback', None)
         self._extra_col = True
         self.focused = False
         self._curpos = [0, 0, 0]
         self.attr = self.attr_normal
     def make(self):
+        "Perform a layout update"
         TextWidget.make(self)
         self._update_curpos()
     def event(self, event):
+        """
+        Handle an input event
+
+        The following editing actions are supported (all-uppercase key names
+        are correspond to curses constants that do not obviously map to
+        standard QWERTY keyboards):
+        Return    (^M): Append a newline character at the cursor position, or
+                        "invoke" the widget if in single-line mode.
+        EOL           : Insert a new line unconditionally (FIXME).
+        BACKSPACE     : Remove the character just before the cursor.
+        Backspace (^?): Remove the character just before the cursor.
+        Down          : Move the cursor one line down.
+        Up            : Move the cursor one line up.
+        Left          : Move the cursor backwards by one position.
+        Right         : Move the cursor forwards by one position.
+        Home          : Move the cursor to the first column of the line.
+        End           : Move the cursor to the end of the line.
+        PgUp          : Move the cursor upwards by one "page".
+        PgDn          : Move the cursor downwards by one "page".
+        Ctrl-A    (^A): Move the cursor to the very beginning of the input.
+        Ctrl-E    (^E): Move the cursor to the very end of the input.
+        All other (textual) characters are inserted at the current cursor
+        position.
+        """
         ret = TextWidget.event(self, event)
         st = self.text
         if event[0] == FocusEvent:
@@ -2695,13 +2740,16 @@ class EntryBox(TextWidget):
             return True
         return ret
     def focus(self, rev=False):
+        "Perform focus traversal"
         return (not self.focused)
     def _set_focused(self, state):
+        "Internal focus handling helper"
         if self.focused == state: return
         self.focused = state
         self.on_focuschange()
         self.invalidate()
     def _update_curpos(self, first=False):
+        "Internal cursor positioning helper"
         if self.focused:
             x, y = self.curpos[:2]
             x += self._indents[y]
@@ -2734,12 +2782,19 @@ class EntryBox(TextWidget):
                 rect = (cpos[0], cpos[1], 1, 1)
             self.grab_input(rect, cpos)
     def on_focuschange(self):
+        """
+        Handle the change of focus state
+        """
         self.attr = (self.attr_active if self.focused else self.attr_normal)
         self._update_curpos(True)
     def on_activate(self):
+        """
+        Handle the "activation" of the widget
+        """
         if self.callback is not None:
             self.callback()
     def _calc_curpos(self, value, rel=False, xy=True):
+        "Internal cursor positioning helper"
         if rel:
             scp = self.curpos
             if not self._text:
@@ -2796,6 +2851,26 @@ class EntryBox(TextWidget):
                 return (x, y, idx)
     def edit(self, delete=None, moveto=None, insert=None, adjust=None,
              rel=False):
+        """
+        Perform an editing actions
+
+        The arguments (except rel) are processed in the order they are
+        passed:
+        delete: If not None, a two-tuple of cursor placements denoting
+                a range of characters to delete.
+        moveto: If not None, a cursor placement to move the cursor to.
+        insert: If not None, a string of characters to insert at the
+                (new) cursor position (without moving the cursor).
+        adjust: If not None, a cursor placement to move the cursor to
+                after inserting text. Always relative.
+        rel   : Specifies whether delete and moveto are absolute (False)
+                or relative (True).
+
+        A cursor placement is either an integer denoting an amount of
+        characters (either into the text or before/after the cursor,
+        depending on the sign in the latter case), or an X/Y (i.e.
+        column/line) pair of coordinates.
+        """
         st, invalid = self.text, False
         if delete is not None:
             fromval, toval = delete
@@ -2811,7 +2886,7 @@ class EntryBox(TextWidget):
             st = st[:cp] + insert + st[cp:]
             invalid |= bool(insert)
             self.text = st
-        if adjust:
+        if adjust is not None:
             self.curpos = self._calc_curpos(adjust, rel=True)
         self._update_indents()
         self._update_curpos()
@@ -2820,9 +2895,17 @@ class EntryBox(TextWidget):
         else:
             self.invalidate()
     def insert(self, text, moveto=None):
+        """
+        Insert the text at the given position, or the current one
+
+        Equivalent to edit(moveto=moveto, insert=text, adjust=len(text))
+        """
         self.edit(moveto=moveto, insert=text, adjust=len(text))
     @property
     def curpos(self):
+        """
+        The current cursor position
+        """
         return tuple(self._curpos)
     @curpos.setter
     def curpos(self, value):
