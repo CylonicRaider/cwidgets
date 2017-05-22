@@ -2912,6 +2912,15 @@ class EntryBox(TextWidget):
         self._curpos[:] = self._calc_curpos(value)
 
 class BaseStrut(Widget):
+    """
+    A widget that is conceptually similar to a straight line
+
+    The base class provides "direction" constants that combine an orientation
+    with the potential presence of something unspecified at no, one, or both
+    ends of the strut.
+    In addition, a strut can be aligned in its available space if it is
+    smaller that that (for example, in the "cross" direction).
+    """
     class Direction(Constant):
         "A strut orientation storing whether to show leading/trailing tees"
     DIR_VERTICAL = Direction('DIR_VERTICAL',
@@ -2931,13 +2940,37 @@ class BaseStrut(Widget):
     DIR_LEFTRIGHT = Direction('DIR_LEFTRIGHT',
         vert=False, lo=True , hi=True )
     def __init__(self, dir=None, **kwds):
+        "Initializer"
         Widget.__init__(self, **kwds)
         self.dir = dir
         self.align = parse_pair(kwds.get('align', ALIGN_CENTER))
 
 class Strut(BaseStrut):
+    """
+    A straight line with optional "tees" at the ends
+
+    The strut is displayed, depending on the orientation, as either a
+    vertical or horizontal line, ending either without anything or with
+    a short line segment in the cross direction if the corresponding
+    end is specified in the direction.
+
+    Attributes are:
+    attr  : The attribute to draw the strut with.
+    margin: A CSS-like margin to put aroung the strut. It is not filled
+            with anything.
+    """
     @staticmethod
     def draw_strut(win, pos, len, dir, attr):
+        """
+        Draw a pseudographical strut
+
+        Arguments are:
+        win : The curses window to draw to.
+        pos : The top-left corner of the strut.
+        len : The length of the strut.
+        dir : The direction of the strut (a DIR_* constant).
+        attr: The attribute to draw the strut with.
+        """
         # derwin()s to avoid weird character drawing glitches
         if dir.vert:
             sw = win.derwin(len, 1, pos[1], pos[0])
@@ -2958,15 +2991,18 @@ class Strut(BaseStrut):
             if dir.hi:
                 sw.insch(0, len - 1, _curses.ACS_RTEE)
     def __init__(self, dir=None, **kwds):
+        "Initializer"
         BaseStrut.__init__(self, dir, **kwds)
         self.attr = kwds.get('attr', 0)
         self.margin = parse_quad(kwds.get('margin', 0))
     def getprefsize(self):
+        "Calculate the preferred size of this widget"
         ret = (self.dir.lo + self.dir.hi, 1)
         if self.dir.vert: ret = ret[::-1]
         ret = inflate(ret, self.margin)
         return maxpos(ret, BaseStrut.getprefsize(self))
     def draw(self, win):
+        "Draw this widget to the given window"
         if self.valid_display: return
         BaseStrut.draw(self, win)
         ir = deflate(
@@ -2982,25 +3018,48 @@ class Strut(BaseStrut):
         self.draw_strut(win, (x, y), l, self.dir, self.attr)
 
 class Scrollbar(BaseStrut):
+    """
+    A scrollbar
+
+    This widget displays the currently visible region of a scrollable widget
+    (if not everything is) along one direction, and allows changing that
+    (i.e. scrolling).
+
+    To be effective, a Scrollbar must be "bound" to a Scrollable using the
+    bind() method of the latter. If two scrollbars are bound to a widget and
+    one of them is focused, the other one is "highlighted", indicating that
+    either scrolling action can be done from either scrollbar.
+
+    Attributes are:
+    attr_normal   : The attribute to use as default.
+    attr_highlight: The attribute to use when the scrollbar is highlighted.
+    attr_active   : The attribute to use when the scrollbar is focused.
+    visibility    : Whether the scrollbar is visible; one of the
+                    VisibilityContainer.VIS_* constants, with the
+                    corresponding semantics.
+    """
     def __init__(self, dir=None, **kwds):
+        "Initializer"
         BaseStrut.__init__(self, dir, **kwds)
-        self.attr = kwds.get('attr', 0)
         self.attr_normal = kwds.get('attr_normal', 0)
         self.attr_active = kwds.get('attr_active', _curses.A_STANDOUT)
         self.attr_highlight = kwds.get('attr_highlight', _curses.A_STANDOUT)
         self.visibility = kwds.get('visibility',
             VisibilityContainer.VIS_VISIBLE)
+        self.attr = self.attr_normal
         self.focused = False
         self.highlighted = False
         self.bound = None
         self._handle = None
     def getprefsize(self):
+        "Obtain the preferred size of this widget"
         if self.visibility == VisibilityContainer.VIS_COLLAPSE:
             return (0, 0)
         ret = (2, 1)
         if self.dir.vert: ret = ret[::-1]
         return maxpos(ret, BaseStrut.getprefsize(self))
     def draw(self, win):
+        "Draw this widget to the given window"
         if (self.valid_display or
                 self.visibility != VisibilityContainer.VIS_VISIBLE):
             return
@@ -3024,6 +3083,11 @@ class Scrollbar(BaseStrut):
             sw.addch(0, 0, _curses.ACS_LARROW)
             sw.insch(0, self.size[0] - 1, _curses.ACS_RARROW)
     def event(self, event):
+        """
+        Handle user input events
+
+        See Scrollable.scroll_event() for the events handled.
+        """
         ret = BaseStrut.event(self, event)
         if event[0] == FocusEvent:
             self._set_focused(event[1])
@@ -3031,16 +3095,19 @@ class Scrollbar(BaseStrut):
             return self.bound.scroll_event(event)
         return ret
     def focus(self, rev=False):
+        "Perform focus traversal"
         return (not self.focused and
                 not (self.bound and self.bound.focusable) and
                 self.visibility == VisibilityContainer.VIS_VISIBLE)
     def _set_focused(self, state):
+        "Internal focus helper"
         if self.focused == state: return
         self.focused = state
         self.on_focuschange()
         self.invalidate()
         self.highlight(state)
     def _update_grab(self):
+        "Internal cursor placement helper"
         if self.focused:
             if self._handle:
                 idx = (1 if self.dir.vert else 0)
@@ -3052,26 +3119,47 @@ class Scrollbar(BaseStrut):
             else:
                 self.grab_input(self.rect, self.pos)
     def on_focuschange(self):
+        """
+        Handle a change of the focus state
+        """
         self.attr = (self.attr_active if self.focused else
             self.attr_highlight if self.highlighted else self.attr_normal)
         self._update_grab()
     def bind(self, parent):
-        if parent is self.bound: return
+        """
+        Bind this scrollbar to the given parent
+
+        This is equivalent to parent.bind(self). Returns the widget now bound
+        to.
+        """
+        if parent is self.bound: return parent
+        if self.bound is not None: self.unbind(self.bound)
         self.bound = parent
         parent.bind(self)
         return parent
     def unbind(self, parent):
-        if parent is not self.bound: return
+        """
+        Unbind this scrollbar from the given parent
+
+        Equivalent to parent.unbind(self). Returns the widget unbound from.
+        """
+        if parent is not self.bound: return parent
         self.bound = None
         parent.unbind(self)
         return parent
     def highlight(self, active):
+        """
+        Change the highlighting state of this
+        """
         if active == self.highlighted: return
         self.highlighted = active
         self.on_focuschange()
         self.invalidate()
         if self.bound is not None: self.bound.on_highlight(active)
     def update(self):
+        """
+        Update to reflect the state of the bound widget
+        """
         if not self.bound: return
         idx = (1 if self.dir.vert else 0)
         offs = self.bound.scrollpos[idx]
@@ -3093,7 +3181,24 @@ class Scrollbar(BaseStrut):
         self.invalidate()
 
 class Slider(BaseStrut):
+    """
+    A means of inputting a number from a given range
+
+    The slider displays the chosen number proportionally within the range
+    bounds. The value can be modified using the "+" and "-" characters.
+
+    Attributes are:
+    min        : The minimal value.
+    max        : The maximal value.
+    step       : The step the value may change with. Note that this does
+                 not guarantee the value will be a multiple of that step
+                 (or value-min will be one).
+    value      : The (initial) value of the slider.
+    attr_normal: The attribute to use when the slider is inactive.
+    attr_active: The attribute to use when the slider is focused.
+    """
     def __init__(self, min=0, max=1, step=None, **kwds):
+        "Initializer"
         kwds.setdefault('dir', self.DIR_HORIZONTAL)
         BaseStrut.__init__(self, **kwds)
         self.min = min
@@ -3105,15 +3210,18 @@ class Slider(BaseStrut):
         self.focused = False
         self.attr = self.attr_normal
     def getprefsize(self):
+        "Obtain the preferred size of this widget"
         ret = (1, 1)
         if self.dir.vert: ret = ret[::-1]
         return maxpos(ret, BaseStrut.getprefsize(self))
     def _handle_pos(self):
+        "Internal cursor placement helper"
         if self.min == self.max: return (0, 0)
         perc = (float(self._value) - self.min) / (self.max - self.min)
         return ((0, int((self.size[1] - 1) * perc)) if self.dir.vert else
                 (int((self.size[0] - 1) * perc), 0))
     def draw(self, win):
+        "Draw this widget to the given window"
         if self.valid_display: return
         BaseStrut.draw(self, win)
         Strut.draw_strut(win, self.pos, self.size[self.dir.vert],
@@ -3122,6 +3230,9 @@ class Slider(BaseStrut):
             rp = addpos(self.pos, self._handle_pos())
             win.addch(rp[1], rp[0], _curses.ACS_SSSS, self.attr)
     def event(self, event):
+        """
+        Handle an input event
+        """
         ret = BaseStrut.event(self, event)
         if event[0] == '+':
             if self.step is None:
@@ -3139,18 +3250,22 @@ class Slider(BaseStrut):
             self._set_focused(event[1])
         return ret
     def focus(self, rev=False):
+        "Focus traversal helper"
         return (not self.focused)
     def _set_focused(self, state):
+        "Internal focusing helper"
         if self.focused == state: return
         self.focused = state
         self.on_focuschange()
         self.invalidate()
     def on_focuschange(self):
+        "Handle a focus state change"
         self.attr = (self.attr_active if self.focused else self.attr_normal)
         if self.focused:
             self.grab_input(self.rect, addpos(self.pos, self._handle_pos()))
     @property
     def value(self):
+        "The current value of the slider"
         return self._value
     @value.setter
     def value(self, newvalue):
@@ -3161,6 +3276,13 @@ class Slider(BaseStrut):
             self.grab_input(self.rect, addpos(self.pos, self._handle_pos()))
         self.invalidate()
     def change(self, delta, visual=False):
+        """
+        Change the value by the given delta
+
+        If visual is false, the value itself is changed by delta directly;
+        otherwise, it is changed such that the slider tick advances by
+        approximately delta units.
+        """
         if visual:
             if self.size[self.dir.vert] == 1: return
             d = (float(delta) * (self.max - self.min) /
