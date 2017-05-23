@@ -1,7 +1,54 @@
 #!/usr/bin/env python3
 # -*- coding: ascii -*-
 
-# *** Minimalistic curses-based widget library for Python ***
+"""
+A simple curses-based TUI library for Python
+
+cwidgets implements an array of classes that can be composed into an
+interactive text user interface. The UI can be interacted with using
+standard key bindings (Tab, Space, Return, ...), and adapts to different
+screen resolutions (if written accordingly).
+
+A typical use (demonstrated on a dialog window would look like this:
+>>> # window is a curses window obtained from, for example, initscr().
+... root = WidgetRoot(window)
+>>> # Wrap the UI in a Viewport to avoid crashes at small resolutions.
+... vp = root.add(Viewport())
+>>> # Push the UI together to avoid spreading everyting over the screen.
+... cont = vp.add(AlignContainer())
+>>> # The user-visible "window"; with a border and the bottom line pushed
+... # inside by one line height.
+... win = cont.add(MarginContainer(border=True, insets=(0, 0, 1, 0)))
+>>> # Decoratively enclose the title
+... title_wrapper = win.add(TeeContainer(), slot=MarginContainer.POS_TOP)
+>>> # Add the title
+... title = title_wrapper.add(Label('cwidgets demo'))
+>>> # Add the content. This could also be a nested Viewport containing
+... # a more complex UI.
+... content = win.add(Label('Lorem ipsum dolor sit amet'))
+>>> # Bind a vertical scrollbar to the content
+... sbv = win.add(content.bind(Scrollbar(Scrollbar.DIR_VERTICAL)),
+...               slot=MarginContainer.POS_RIGHT)
+>>> # The bottom contains a line of buttons stacked below a scrollbar.
+... bottom = win.add(VerticalContainer(), slot=MarginContainer.POS_BOTTOM)
+>>> # Add the horizontal scrollbar.
+... sbh = bottom.add(content.bind(Scrollbar(Scrollbar.DIR_HORIZONTAL)))
+>>> # The buttons are laid out horizontally.
+... buttons = bottom.add(HorizontalContainer())
+>>> # A bare Widget as "glue" to fill the space. An AlignContainer would
+... # have been possible as well.
+... buttons.add(Widget(), weight=1)
+>>> # The first button
+... buttons.add(Button('OK', sys.exit))
+>>> # A little spacer between the buttons
+... buttons.add(Widget(minsize=(1, 1)))
+>>> # The second button
+... buttons.add(Button('Cancel', lambda: sys.exit(1)))
+>>> # Another glue
+... buttons.add(Widget(), weight=1)
+>>> # Run it.
+... root.main()
+"""
 
 import sys as _sys
 import time as _time
