@@ -1659,6 +1659,12 @@ class MarginContainer(Container):
         self._prefsize = None
         self._presizes = None
         self._boxes = None
+    def invalidate(self, rec=False, child=None):
+        "Mark this widget as in need of a redraw"
+        Container.invalidate(self, rec, child)
+        for ch in self.children:
+            if self._slots[ch] == self.POS_CENTER: continue
+            ch.invalidate(True)
     def draw(self, win):
         "Draw this widget to the given window"
         if self.valid_display: return
@@ -2367,6 +2373,7 @@ class TextWidget(BoxWidget, Scrollable):
         self._vindent = None
         self._prefsize = None
         self.contentsize = (0, 0)
+        self.focusable = False
     def getprefsize(self):
         "Calculate the preferred size of this widget"
         # Force calculation of the relevant values.
