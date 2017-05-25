@@ -583,8 +583,9 @@ class Widget(object):
     This provides default implementations for all methods.
 
     Attributes:
-    minsize      : The (externally set) minimal size below which the widget
-                   must not shrink.
+    cminsize     : The (custom) minimal size below which the widget must not
+                   shrink. Can be used for creating rigid spacers of custom
+                   sizes.
     parent       : The parent of this widget in the hierarchy.
     pos          : The position of the widget in the layout.
     size         : The size of the widget in the layout.
@@ -607,7 +608,7 @@ class Widget(object):
         Accepts configuration via keyword arguments:
         minsize: The minsize attribute.
         """
-        self.minsize = kwds.get('minsize', (0, 0))
+        self.cminsize = kwds.get('cminsize', (0, 0))
         self.parent = None
         self.pos = None
         self.size = None
@@ -616,6 +617,18 @@ class Widget(object):
         self.grabbing = None
         self.grabbing_full = False
         self.cursor_pos = None
+        self._minsize = None
+        self._prefsize = None
+    @property
+    def minsize(self):
+        "The minimal layout size of this widget"
+        if self._minsize is None: self._minsize = self.getminsize()
+        return maxpos(self._minsize, self.cminsize)
+    @property
+    def prefsize(self):
+        "The preferred layout size of this widget"
+        if self._prefsize is None: self._prefsize = self.getprefsize()
+        return maxpos(self._prefsize, self.cminsize)
     @property
     def rect(self):
         "The position concatenated with the size"
@@ -626,7 +639,7 @@ class Widget(object):
 
         The default implementation is to return the preferred size.
         """
-        return self.getprefsize()
+        return self.prefsize
     def getprefsize(self):
         """
         Compute the preferred layout size of this widget
@@ -634,7 +647,7 @@ class Widget(object):
         The default implementation merely returns the value of the minsize
         attribute.
         """
-        return self.minsize
+        return self.cminsize
     def make(self):
         """
         Recompute the layout of this widget
@@ -757,6 +770,8 @@ class Widget(object):
         """
         ov, self.valid_layout = self.valid_layout, False
         if ov: self.parent.invalidate_layout()
+        self._minsize = None
+        self._prefsize = None
     def _delete_layout(self):
         "Remove the widget from its container"
         if self.parent is not None:
@@ -799,29 +814,7 @@ class Container(Widget):
         Widget.__init__(self, **kwds)
         self.children = []
         self._focused = None
-        self._cprefsize = None
-        self._cminsize = None
     def getminsize(self):
-        """
-        Calculate the minimum size of the container
-
-        The standard implementation calls layout_minsize(), ensures the
-        result is no less than the minsize attribute, and caches the result.
-        """
-        if not self._cminsize:
-            self._cminsize = self.layout_minsize()
-        return maxpos(self.minsize, self._cminsize)
-    def getprefsize(self):
-        """
-        Calculate the minimum size of the container
-
-        The standard implementation calls layout_prefsize(), ensures the
-        result is no less than the minsize attribute, and caches the result.
-        """
-        if not self._cprefsize:
-            self._cprefsize = self.layout_prefsize()
-        return maxpos(self.minsize, self._cprefsize)
-    def layout_minsize(self):
         """
         Calculate the absolute minimum size of the container
 
@@ -829,9 +822,9 @@ class Container(Widget):
         layout algorithm.
         """
         wh = (0, 0)
-        for i in self.children: wh = maxpos(wh, i.getminsize())
+        for i in self.children: wh = maxpos(wh, i.minsize)
         return wh
-    def layout_prefsize(self):
+    def getprefsize(self):
         """
         Calculate the preferred size of the container
 
@@ -839,7 +832,7 @@ class Container(Widget):
         layout algorithm.
         """
         wh = (0, 0)
-        for i in self.children: wh = maxpos(wh, i.getprefsize())
+        for i in self.children: wh = maxpos(wh, i.prefsize)
         return wh
     def make(self):
         """
@@ -863,7 +856,7 @@ class Container(Widget):
         """
         for i in self.children:
             i.pos = self.pos
-            i.size = minpos(self.size, i.getprefsize())
+            i.size = minpos(self.size, i.prefsize)
     def draw(self, win):
         """
         Draw this container to the given window
@@ -1024,7 +1017,7 @@ class SingleContainer(Container):
         elif not self.children:
             self._chms = (0, 0)
         else:
-            self._chms = self.children[0].getminsize()
+            self._chms = self.children[0].minsize
         return self._chms
     def _child_prefsize(self):
         """
@@ -1037,7 +1030,7 @@ class SingleContainer(Container):
         elif not self.children:
             self._chps = (0, 0)
         else:
-            self._chps = self.children[0].getprefsize()
+            self._chps = self.children[0].prefsize
         return self._chps
     def add(self, widget, **config):
         "Add a child"
@@ -1182,11 +1175,11 @@ class BoxContainer(VisibilityContainer):
                 m(1) + bool(b(1)) + p(1),
                 m(2) + bool(b(2)) + p(2),
                 m(3) + bool(b(3)) + p(3))
-    def layout_minsize(self):
+    def getminsize(self):
         "Get the minimum size of this widget"
         chms, ins = self._child_minsize(), self.calc_insets()
         return inflate(chms, ins)
-    def layout_prefsize(self):
+    def getprefsize(self):
         "Get the preferred size of this widget"
         chps, ins = self._child_prefsize(), self.calc_insets()
         return inflate(chps, ins)
@@ -1474,14 +1467,9 @@ class StackContainer(Container):
         "Initializer"
         Container.__init__(self, **kwds)
         self._layers = {}
-    def layout_minsize(self):
-        "Calculate the minimum size of this widget"
-        wh = (0, 0)
-        for i in self.children: wh = maxpos(wh, i.getminsize())
-        return wh
     def relayout(self):
         "Perform a layout update"
-        ps = self.getprefsize()
+        ps = self.prefsize
         for w in self.children:
             w.pos = self.pos
             w.size = self.size
@@ -1532,12 +1520,16 @@ class PlacerContainer(StackContainer):
         StackContainer.__init__(self, **kwds)
         self._positions = {}
         self._sizes = {}
-    def layout_prefsize(self):
+    def getminsize(self):
+        "Get the minimum size of this container"
+        # Everything is rigid anyway.
+        return self.prefsize
+    def getprefsize(self):
         "Get the preferred size of this container"
         wh = (0, 0)
         for i in self.children:
             s = self._sizes.get(i)
-            if not s: s = i.getprefsize()
+            if not s: s = i.prefsize
             wh = maxpos(wh, addpos(self._positions[i], s))
         return wh
     def relayout(self):
@@ -1546,7 +1538,7 @@ class PlacerContainer(StackContainer):
             w.pos = addpos(self.pos, self._positions[w])
             s = self._sizes[w]
             if s is None:
-                w.size = w.getprefsize()
+                w.size = w.prefsize
             else:
                 w.size = s
     def add(self, widget, **config):
@@ -1634,15 +1626,13 @@ class MarginContainer(Container):
         self.background_ch = kwds.get('background_ch', '\0')
         self._slots = {}
         self._revslots = {}
-        self._minsize = None
-        self._prefsize = None
         self._presizes = None
         self._boxes = None
-    def layout_minsize(self):
+    def getminsize(self):
         "Calculate the minimum size of this container"
         self._make_preboxes()
         return self._minsize
-    def layout_prefsize(self):
+    def getprefsize(self):
         "Calculate the preferred size of this container"
         self._make_preboxes()
         return self._prefsize
@@ -1655,8 +1645,6 @@ class MarginContainer(Container):
     def invalidate_layout(self):
         "Mark this widget as in need of a layout refresh"
         Container.invalidate_layout(self)
-        self._minsize = None
-        self._prefsize = None
         self._presizes = None
         self._boxes = None
     def invalidate(self, rec=False, child=None):
@@ -1703,7 +1691,7 @@ class MarginContainer(Container):
         mws, mhs = [0, 0, 0], [0, 0, 0]
         pws, phs = [0, 0, 0], [0, 0, 0]
         for w, slot in self._slots.items():
-            ms, ps = w.getminsize(), w.getprefsize()
+            ms, ps = w.minsize, w.prefsize
             mws[slot.x] = max(mws[slot.x], ms[0])
             mhs[slot.y] = max(mhs[slot.y], ms[1])
             pws[slot.x] = max(pws[slot.x], ps[0])
@@ -1918,14 +1906,12 @@ class LinearContainer(Container):
         self._sweights_x = {}
         self._sweights_y = {}
         self._preboxes = None
-        self._prefsize = None
-        self._minsize = None
         self._boxes = None
-    def layout_minsize(self):
+    def getminsize(self):
         "Calculate the minimum size of this container"
         self._make_preboxes()
         return self._minsize
-    def layout_prefsize(self):
+    def getprefsize(self):
         "Calculate the preferred size of this container"
         self._make_preboxes()
         return self._prefsize
@@ -1939,8 +1925,6 @@ class LinearContainer(Container):
         "Mark this container as in need of a layout refresh"
         Container.invalidate_layout(self)
         self._preboxes = None
-        self._prefsize = None
-        self._minsize = None
         self._boxes = None
     def add(self, widget, **config):
         """
@@ -1986,7 +1970,7 @@ class LinearContainer(Container):
         amnt, tps, tms = [0, 0], (0, 0), (0, 0)
         self._preboxes = []
         for w in self.children:
-            ps, ms, r = w.getprefsize(), w.getminsize(), self._rules[w]
+            ps, ms, r = w.prefsize, w.minsize, self._rules[w]
             mps, mms = maxpos(mps, ps), maxpos(mms, ms)
             self._preboxes.append((w, tuple(ps), tuple(ms)))
             tps = maxpos(tps, (cpp[0] + ps[0], cpp[1] + ps[1]))
@@ -2090,15 +2074,13 @@ class GridContainer(Container):
         self._rowConfig = {}
         self._presizes = None
         self._minsizes = None
-        self._prefsize = None
-        self._minsize = None
         self._offsets = None
         self._sizes = None
-    def layout_minsize(self):
+    def getminsize(self):
         "Calculate the minimum size of this container"
         self._make_presizes()
         return self._minsize
-    def layout_prefsize(self):
+    def getprefsize(self):
         "Calculate the preferred size of the container"
         self._make_presizes()
         return self._prefsize
@@ -2115,8 +2097,6 @@ class GridContainer(Container):
         Container.invalidate_layout(self)
         self._presizes = None
         self._minsizes = None
-        self._prefsize = None
-        self._minsize = None
         self._sizes = None
     def add(self, widget, **config):
         """
@@ -2179,7 +2159,7 @@ class GridContainer(Container):
             while len(msx) < xp1: msx.append(0)
             while len(psy) < yp1: psy.append(0)
             while len(msy) < yp1: msy.append(0)
-            wps, wms = w.getprefsize(), w.getminsize()
+            wps, wms = w.prefsize, w.minsize
             psx[x] = max(psx[x], wps[0])
             msx[x] = max(msx[x], wms[0])
             psy[y] = max(psy[y], wps[1])
@@ -2371,14 +2351,14 @@ class TextWidget(BoxWidget, Scrollable):
         self._lines = None
         self._indents = None
         self._vindent = None
-        self._prefsize = None
+        self._natsize = None
         self.contentsize = (0, 0)
         self.focusable = False
     def getprefsize(self):
         "Calculate the preferred size of this widget"
         # Force calculation of the relevant values.
         self.text = self._text
-        ps, cm = self._prefsize, self.cmaxsize
+        ps, cm = self._natsize, self.cmaxsize
         return (ps[0] if cm[0] is None else min(ps[0], cm[0]),
                 ps[1] if cm[1] is None else min(ps[1], cm[1]))
     def _update_indents(self):
@@ -2397,8 +2377,9 @@ class TextWidget(BoxWidget, Scrollable):
         "Perform a layout refresh on this widget"
         BoxWidget.make(self)
         self._update_indents()
-        self.maxscrollpos = subpos(self._prefsize, self.size)
-        self.contentsize = maxpos(self._prefsize, self.size)
+        ps = self.prefsize
+        self.maxscrollpos = subpos(ps, self.size)
+        self.contentsize = maxpos(ps, self.size)
     def draw(self, win):
         "Draw this widget to the given window"
         if self.valid_display: return
@@ -2484,7 +2465,7 @@ class TextWidget(BoxWidget, Scrollable):
         if text: tp, ts = tp + ctp, cts + ts
         ps[0] += len(tp) + len(ts)
         if self._extra_col: ps[0] += 1
-        self._prefsize = tuple(ps)
+        self._natsize = tuple(ps)
         self.invalidate_layout()
 
 class Label(TextWidget):
@@ -2811,10 +2792,11 @@ class EntryBox(TextWidget):
             if self.border:
                 x += 1
                 y += 1
-            if x >= self._prefsize[0]:
-                x = self._prefsize[0] - 1
-            if y >= self._prefsize[1]:
-                y = self._prefsize[1] - 1
+            ps = self.prefsize
+            if x >= ps[0]:
+                x = ps[0] - 1
+            if y >= ps[1]:
+                y = ps[1] - 1
             nsp = list(self.scrollpos)
             if x < nsp[0]:
                 nsp[0] = x
