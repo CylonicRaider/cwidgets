@@ -589,7 +589,11 @@ class Widget(object):
     parent       : The parent of this widget in the hierarchy.
     pos          : The position of the widget in the layout.
     size         : The size of the widget in the layout.
-    valid_display: Whether the widget has *not* to be redrawn.
+    valid_display: Whether the widget has *not* to be redrawn. Implies
+                   valid_self (so that a false valid_self implies a false
+                   valid_display).
+    valid_self   : Whether the widget itself (i.e. excluding children) needs
+                   *not* to be redrawn.
     valid_layout : Whether the widget's layout has *not* to be remade.
     grabbing     : If the widget is currently in charge of the cursor, a
                    rectangle indicating the area to display.
@@ -613,6 +617,7 @@ class Widget(object):
         self.pos = None
         self.size = None
         self.valid_display = False
+        self.valid_self = False
         self.valid_layout = False
         self.grabbing = None
         self.grabbing_full = False
@@ -670,13 +675,29 @@ class Widget(object):
         self.invalidate()
     def draw(self, win):
         """
-        Redraw this widget
+        Redraw this widget and its children
 
         win is the curses window to draw to.
         The default implementation does nothing beyond marking the widget as
-        redrawn.
+        (fully) as redrawn  and calling draw_self() if necessary. Containers
+        may override this to draw children, but any drawing tasks directly
+        related to this widget should go into draw_self().
+        Well-behaved implementations should return immediately if they are
+        still valid.
         """
+        if self.valid_display: return
         self.valid_display = True
+        if not self.valid_self:
+            self.valid_self = True
+            self.draw_self(win)
+    def draw_self(self, win):
+        """
+        Redraw this widget only
+
+        win is the window to draw to.
+        The default implementation does nothing.
+        """
+        pass
     def grab_input(self, rect, pos=None, child=None, full=False):
         """
         Render this widget in charge of input
@@ -754,13 +775,28 @@ class Widget(object):
         Mark this widget as in need of a redraw
 
         rec is whether the entire widget tree should be invalidated; child
-        is the child the invalidation request originated from (if from one).
-        The standard implementation sets the valid_display attribute to
-        False and propagates the request to the parent widget if this widget
-        had been "valid" before.
+        is the child the invalidation request originated from (if any).
+        A widget can be invalidated in multiple ways:
+        - Recursive invalidation: If rec is true, the entire widget tree
+          below and including self is invalidated unconditionally. child
+          should be None. valid_display and valid_self (if child is None as
+          specified above) are cleared.
+        - Pinpoint invalidation: If rec is false and child is None, the
+          invalidation is aimed at exactly this widget. Both valid_display
+          and valid_self are reset, and the request is propagated to the
+          parent.
+        - Pass-through invalidation: If rec is false and child is not None,
+          a child was invalidated and is propagating the request to its
+          parent. valid_display is reset (valid_self not), and the request
+          is propagated further.
+        If a widget (such as a container with multiple children) optimizes
+        its rendering, it should flush state related to that on the Python
+        condition (rec or child is None).
         """
-        ov, self.valid_display = self.valid_display, False
-        if ov: self.parent.invalidate(child=self)
+        ovd = self.valid_display
+        self.valid_display = False
+        if child is None: self.valid_self = False
+        if ovd and not rec: self.parent.invalidate(child=self)
     def invalidate_layout(self):
         """
         Mark this widget as in need of a re-layout
@@ -863,12 +899,13 @@ class Container(Widget):
 
         The standard implementation aborts if already valid, draws all
         children recursively, and marks the container as valid.
-        Subclasses may hook this to display additional UI elements.
+        Subclasses should hook draw_self() (which is implicitly called
+        if necessary) to display own UI elements.
         """
         if self.valid_display: return
+        Widget.draw(self, win)
         for i in self.children:
             i.draw(win)
-        Widget.draw(self, win)
     def event(self, event):
         """
         Process input events directed to this widget
@@ -927,7 +964,8 @@ class Container(Widget):
         the invalidation originated at.
         The standard implementation actually marks the container itself and
         propagates the event to the children if rec is true.
-        Subclasses may need to hook this to reset cached state.
+        Subclasses may need to override this to reset drawing state; see
+        Widget.invalidate() for details.
         """
         Widget.invalidate(self, rec, child)
         if rec:
@@ -1032,26 +1070,26 @@ class SingleContainer(Container):
         else:
             self._chps = self.children[0].prefsize
         return self._chps
-    def add(self, widget, **config):
-        "Add a child"
-        while self.children:
-            self.remove(self.children[0])
-        return Container.add(self, widget, **config)
     def invalidate_layout(self):
         "Signal the need of a relayout"
         Container.invalidate_layout(self)
         self._chms = None
         self._chps = None
+    def add(self, widget, **config):
+        "Add a child"
+        while self.children:
+            self.remove(self.children[0])
+        return Container.add(self, widget, **config)
 
 class VisibilityContainer(SingleContainer):
     """
-    A container that can hide its only child
+    A container that can disappear (partially or fully)
 
-    The child can be in one of the three visibility states (as set by the
-    corresponding attribute):
-    VIS_VISIBLE : The child is normally visible.
-    VIS_HIDDEN  : The child is not visible, but still takes up space.
-    VIS_COLLAPSE: The container's minimum size collapses to zero.
+    The container (including the child) can be in one of the three
+    visibility states:
+    VIS_VISIBLE : Normally visible.
+    VIS_HIDDEN  : Not visibile but still taking up space.
+    VIS_COLLAPSE: Not visible and not consuming any space.
     """
     class Visibility(Constant):
         "A mode of widget visibility"
@@ -1063,22 +1101,50 @@ class VisibilityContainer(SingleContainer):
         SingleContainer.__init__(self, **kwds)
         self.visibility = kwds.get('visibility', self.VIS_VISIBLE)
     def getminsize(self):
-        "Get the minimum size"
+        """
+        Obtain the minimum size of this widget
+
+        This implements collapsing behavior. Subclasses should override
+        inner_minsize() instead of this.
+        """
         if self.visibility == self.VIS_COLLAPSE:
             return (0, 0)
         else:
-            return SingleContainer.getminsize(self)
+            return self.inner_minsize()
+    def inner_minsize(self):
+        """
+        Obtain the minimum size of this widget
+
+        This method should be overridden instead of getminsize().
+        """
+        return SingleContainer.getminsize(self)
     def getprefsize(self):
-        "Get the preferred size"
+        """
+        Obtain the preferred size of this widget
+
+        This implements collapsing behavior. Subclasses should override
+        inner_prefsize() instead of this.
+        """
         if self.visibility == self.VIS_COLLAPSE:
             return (0, 0)
         else:
-            return SingleContainer.getprefsize(self)
+            return self.inner_prefsize()
+    def inner_prefsize(self):
+        """
+        Obtain the preferred size of this widget
+
+        This method should be overridden instead of getminsize().
+        """
+        return SingleContainer.getprefsize(self)
+    def make(self):
+        "Perform layout"
+        if self.visibility == self.VIS_COLLAPSE: return
+        SingleContainer.make(self)
     def draw(self, win):
         """
         Draw this widget to the given window
 
-        The standard implementation skips rendering if the child is not
+        The standard implementation skips rendering if the container is not
         VISIBLE, and forwards to the draw_inner() method otherwise.
         """
         if self.visibility != self.VIS_VISIBLE or self.valid_display:
@@ -1088,9 +1154,17 @@ class VisibilityContainer(SingleContainer):
         """
         Actually draw this widget to the given window
 
-        Overriding the drawing behavior should happen here.
+        Overriding the drawing behavior should happen here. The standard
+        implementation forwards to the draw() method of SingleContainer.
         """
         SingleContainer.draw(self, win)
+    def focus(self, rev=False):
+        "Perform focus traversal"
+        if self.visibility == self.VIS_COLLAPSE:
+            if self._focused is not None:
+                self._refocus(None)
+            return False
+        return SingleContainer.focus(self, rev)
 
 class BoxContainer(VisibilityContainer):
     """
@@ -1175,11 +1249,11 @@ class BoxContainer(VisibilityContainer):
                 m(1) + bool(b(1)) + p(1),
                 m(2) + bool(b(2)) + p(2),
                 m(3) + bool(b(3)) + p(3))
-    def getminsize(self):
+    def inner_minsize(self):
         "Get the minimum size of this widget"
         chms, ins = self._child_minsize(), self.calc_insets()
         return inflate(chms, ins)
-    def getprefsize(self):
+    def inner_prefsize(self):
         "Get the preferred size of this widget"
         chps, ins = self._child_prefsize(), self.calc_insets()
         return inflate(chps, ins)
@@ -1193,17 +1267,13 @@ class BoxContainer(VisibilityContainer):
         if self.children:
             self.children[0].pos = self._widget_rect[:2]
             self.children[0].size = self._widget_rect[2:]
-    def draw_inner(self, win):
+    def draw_self(self, win):
         "Actually draw this widget"
         BoxWidget.draw_box(win, self.pos, self.size, self.attr_margin,
                            self.ch_margin, False)
         BoxWidget.draw_box(win, self._box_rect[:2], self._box_rect[2:],
                            self.attr_box, self.ch_box, self.border)
-        VisibilityContainer.draw_inner(self, win)
-    def invalidate(self, rec=False, child=None):
-        "Mark this widget as in need of a redraw"
-        # The background is painted on top of everything.
-        VisibilityContainer.invalidate(self, True, child)
+        VisibilityContainer.draw_self(self, win)
     def invalidate_layout(self):
         "Mark this widget as in need of a layout refresh"
         VisibilityContainer.invalidate_layout(self)
@@ -1246,13 +1316,13 @@ class AlignContainer(VisibilityContainer):
         self.align = parse_pair(kwds.get('align', ALIGN_CENTER))
         self._pads = (0, 0, 0, 0)
         self._wbox = None
-    def getminsize(self):
+    def inner_minsize(self):
         "Get the minimum size of this widget"
-        pms, sp = VisibilityContainer.getminsize(self), self._pads
+        pms, sp = VisibilityContainer.inner_minsize(self), self._pads
         return (sp[3] + pms[0] + sp[1], sp[0] + pms[1] + sp[2])
-    def getprefsize(self):
+    def inner_prefsize(self):
         "Get the preferred size of this widget"
-        pps, sp = VisibilityContainer.getminsize(self), self._pads
+        pps, sp = VisibilityContainer.inner_prefsize(self), self._pads
         return (sp[3] + pps[0] + sp[1], sp[0] + pps[1] + sp[2])
     def relayout(self):
         "Perform a layout refresh"
@@ -1291,15 +1361,14 @@ class TeeContainer(AlignContainer):
             (_curses.ACS_RTEE, _curses.ACS_LTEE)))
         self.attrs = parse_pair(kwds.get('attrs', 0))
         self._pads = (0, 1, 0, 1)
-    def draw(self, win):
+    def draw_self(self, win):
         "Draw this widget to the given window"
-        if self.valid_display: return
         sw = win.derwin(self._wbox[3], self._wbox[2],
                         self._wbox[1], self._wbox[0])
         sw.addch(0, 0, self.tees[0], self.attrs[0])
         sw.insch(self._wbox[3] - 1, self._wbox[2] - 1, self.tees[1],
                  self.attrs[1])
-        AlignContainer.draw(self, win)
+        AlignContainer.draw_inner(self, win)
 
 class Viewport(SingleContainer, Scrollable):
     """
@@ -1374,10 +1443,9 @@ class Viewport(SingleContainer, Scrollable):
             zbound(self.scrollpos[0], self.maxscrollpos[0]),
             zbound(self.scrollpos[1], self.maxscrollpos[1]))
         self.on_scroll(oldpos)
-    def draw(self, win):
+    def draw_self(self, win):
         "Draw this widget to the given window"
-        if self.valid_display: return
-        Widget.draw(self, win)
+        Widget.draw_self(self, win)
         chsz = self.padsize
         if self._pad is None:
             self._pad = _curses.newpad(chsz[1] + 1, chsz[0] + 1)
@@ -1440,7 +1508,7 @@ class Viewport(SingleContainer, Scrollable):
         # Child is rendered to offscreen pad, and cannot be invalidated
         # by anything that happens to me (invalidated in draw() if
         # necessary).
-        Widget.invalidate(self, rec, child)
+        Widget.invalidate(self, rec)
     def invalidate_layout(self):
         "Mark this widget as in need of a layout refresh"
         SingleContainer.invalidate_layout(self)
@@ -1650,15 +1718,15 @@ class MarginContainer(Container):
     def invalidate(self, rec=False, child=None):
         "Mark this widget as in need of a redraw"
         Container.invalidate(self, rec, child)
-        for ch in self.children:
-            if self._slots[ch] == self.POS_CENTER: continue
-            ch.invalidate(True)
-    def draw(self, win):
+        if child is None:
+            for ch in self.children:
+                if self._slots[ch] == self.POS_CENTER: continue
+                ch.invalidate(True)
+    def draw_self(self, win):
         "Draw this widget to the given window"
-        if self.valid_display: return
         BoxWidget.draw_box(win, self.pos, self.size, self.background,
                            self.background_ch, self.border)
-        Container.draw(self, win)
+        Container.draw_self(self, win)
     def add(self, widget, **config):
         """
         Add the given child to this container
@@ -2301,10 +2369,9 @@ class BoxWidget(Widget):
         self.background = kwds.get('background', None)
         self.background_ch = kwds.get('background_ch', '\0')
         self.border = kwds.get('border', False)
-    def draw(self, win):
+    def draw_self(self, win):
         "Draw this widget to the given window"
-        if self.valid_display: return
-        Widget.draw(self, win)
+        Widget.draw_self(self, win)
         self.draw_box(win, self.pos, self.size, self.background,
                       self.background_ch, self.border)
 
@@ -2380,10 +2447,9 @@ class TextWidget(BoxWidget, Scrollable):
         ps = self.prefsize
         self.maxscrollpos = subpos(ps, self.size)
         self.contentsize = maxpos(ps, self.size)
-    def draw(self, win):
+    def draw_self(self, win):
         "Draw this widget to the given window"
-        if self.valid_display: return
-        BoxWidget.draw(self, win)
+        BoxWidget.draw_self(self, win)
         self.text = self._text
         i = (1 if self.border else 0)
         pref, cpref = self._text_prefix()
@@ -3037,10 +3103,9 @@ class Strut(BaseStrut):
         if self.dir.vert: ret = ret[::-1]
         ret = inflate(ret, self.margin)
         return maxpos(ret, BaseStrut.getprefsize(self))
-    def draw(self, win):
+    def draw_self(self, win):
         "Draw this widget to the given window"
-        if self.valid_display: return
-        BaseStrut.draw(self, win)
+        BaseStrut.draw_self(self, win)
         ir = deflate(
             (self.pos[0], self.pos[1], self.size[0], self.size[1]),
             self.margin)
@@ -3094,12 +3159,11 @@ class Scrollbar(BaseStrut):
         ret = (2, 1)
         if self.dir.vert: ret = ret[::-1]
         return maxpos(ret, BaseStrut.getprefsize(self))
-    def draw(self, win):
+    def draw_self(self, win):
         "Draw this widget to the given window"
-        if (self.valid_display or
-                self.visibility != VisibilityContainer.VIS_VISIBLE):
+        if self.visibility != VisibilityContainer.VIS_VISIBLE:
             return
-        BaseStrut.draw(self, win)
+        BaseStrut.draw_self(self, win)
         if self.dir.vert:
             x = self.pos[0] + int(self.size[0] * self.align[0])
             sw = win.derwin(self.size[1], 1, self.pos[1], x)
@@ -3256,10 +3320,9 @@ class Slider(BaseStrut):
         perc = (float(self._value) - self.min) / (self.max - self.min)
         return ((0, int((self.size[1] - 1) * perc)) if self.dir.vert else
                 (int((self.size[0] - 1) * perc), 0))
-    def draw(self, win):
+    def draw_self(self, win):
         "Draw this widget to the given window"
-        if self.valid_display: return
-        BaseStrut.draw(self, win)
+        BaseStrut.draw_self(self, win)
         Strut.draw_strut(win, self.pos, self.size[self.dir.vert],
                          self.dir, self.attr)
         if self.min != self.max:
