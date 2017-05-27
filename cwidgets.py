@@ -41,7 +41,7 @@ A typical use (demonstrated on a dialog window would look like this:
 >>> # The first button
 ... buttons.add(Button('OK', sys.exit))
 >>> # A little spacer between the buttons
-... buttons.add(Widget(minsize=(1, 1)))
+... buttons.add(Widget(cminsize=(1, 1)))
 >>> # The second button
 ... buttons.add(Button('Cancel', lambda: sys.exit(1)))
 >>> # Another glue
@@ -2743,8 +2743,8 @@ class EntryBox(TextWidget):
         self.backspace_hack = kwds.get('backspace_hack', True)
         self.callback = kwds.get('callback', None)
         self._extra_col = True
-        self.focused = False
         self._curpos = [0, 0, 0]
+        self.focused = False
         self.attr = self.attr_normal
     def make(self):
         "Perform a layout update"
