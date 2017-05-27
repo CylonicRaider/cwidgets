@@ -1456,6 +1456,7 @@ class Viewport(SingleContainer, Scrollable):
         self.focusable = False
         self.padsize = (0, 0)
         self._pad = None
+        self._curpos = None
     def getminsize(self):
         "Obtain the minimum sie of this widget"
         ps, ms = SingleContainer.getminsize(self), self.cmaxsize
@@ -1564,7 +1565,8 @@ class Viewport(SingleContainer, Scrollable):
         "Handle a scroll event"
         Scrollable.on_scroll(self, oldpos)
         if tuple(oldpos) != tuple(self.scrollpos):
-            self.grab_input(None)
+            if self._focused is not None:
+                self.grab_input(None, pos=self._curpos, _scroll=False)
             self.invalidate()
 
 class StackContainer(Container):
