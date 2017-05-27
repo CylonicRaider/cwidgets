@@ -838,8 +838,9 @@ class Container(Widget):
     algorithms.
 
     Attributes:
-    children: The list of children held by this widget. Should not be
-              manipulated directly.
+    children: The list of children held by this widget. May be read
+              externally, but should only be modified using the corresponding
+              methods.
     """
     def __init__(self, **kwds):
         """
@@ -850,6 +851,7 @@ class Container(Widget):
         Widget.__init__(self, **kwds)
         self.children = []
         self._focused = None
+        self._oldrect = None
     def getminsize(self):
         """
         Calculate the absolute minimum size of the container
@@ -875,13 +877,19 @@ class Container(Widget):
         Perform layout
 
         The standard implementation aborts if the container is (already)
-        valid, calls the relayout() method, invokes the make() methods
-        of all children recursively, and marks the container as valid.
+        valid; otherwise, if the container's position or size have changed,
+        it invalidates all children, calls the relayout() method, and
+        invokes all children's make() methods. In any case, the container
+        is valid after the procedure.
         """
         if self.valid_layout: return
-        self.relayout()
-        for i in self.children:
-            i.make()
+        if self._oldrect != self.rect:
+            for i in self.children:
+                i.invalidate_layout()
+            self.relayout()
+            for i in self.children:
+                i.make()
+            self._oldrect = self.rect
         Widget.make(self)
     def relayout(self):
         """
@@ -982,10 +990,8 @@ class Container(Widget):
         Subclasses may need to hook this to reset cached state.
         """
         Widget.invalidate_layout(self)
-        self._cminsize = None
-        self._cprefsize = None
-        for w in self.children:
-            w.invalidate_layout()
+        # Force layout recalculation.
+        self._oldrect = None
     def _refocus(self, new):
         "Helper method to properly switch focus between two children"
         if new is self._focused: return
