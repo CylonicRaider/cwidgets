@@ -90,11 +90,13 @@ def shiftrect(r, p):
 def unshiftrect(r, p):
     "Return r with the position decreased by p"
     return (r[0] - p[0], r[1] - p[1], r[2], r[3])
-def boundrect(r, b):
-    "Return r shifted and possibly scaled such that it is entirely in b"
-    if r[0] < b[0]: r = (b[0], r[1], r[2] - b[0] + r[0], r[3])
-    if r[1] < b[1]: r = (r[0], b[1], r[2], r[3] - b[1] + r[1])
-    return (r[0], r[1], zbound(r[2], b[2]), zbound(r[3], b[3]))
+def intersectrect(r, b):
+    "Return r clamped such that it entirely fits into b"
+    pos = (max(r[0], b[0]), max(r[1], b[1]))
+    bbr = (b[0] + b[2], b[1] + b[3])
+    br = (min(r[0] + r[2], bbr[0]), min(r[1] + r[3], bbr[1]))
+    return (min(pos[0], bbr[0]), min(pos[1], bbr[1]),
+            max(br[0] - pos[0], 0), max(br[1] - pos[1], 0))
 
 def linear_distrib(full, amnt):
     "Return a list of amnt approximately equal integers summing up to full"
@@ -332,20 +334,57 @@ class Scrollable:
         self.scrollpos[:] = newpos
         if update: self.on_scroll(oldpos)
         return update
+    def _scroll_to(self, pos, size, curpos=None):
+        """
+        Perform the actual calculation for scroll_to
+
+        pos and size define the rectangle to scroll to; curpos, if not None,
+        if the current scroll position to assume (for example, for repeated
+        calculations).
+        See scroll_to() for further details.
+        """
+        area = subpos(self.contentsize, self.maxscrollpos)
+        newx, newy = (curpos or self.scrollpos)
+        right = pos[0] + size[0] - area[0]
+        left, right = min(pos[0], right), max(pos[0], right)
+        if newx < left:
+            newx = left
+        elif newx > right:
+            newx = right
+        bottom = pos[1] + size[1] - area[1]
+        top, bottom = min(pos[1], bottom), max(pos[1], bottom)
+        if newy < top:
+            newy = top
+        elif newy > bottom:
+            newy = bottom
+        return (zbound(newx, self.maxscrollpos[0]),
+                zbound(newy, self.maxscrollpos[1]))
+    def scroll_to(self, pos, size=(1, 1)):
+        """
+        Scroll so that the given rectangle is visible
+
+        pos is relative to the scrolling origin of the widget (i.e. not
+        absolute).
+        The scroll is calculated such that the largest intersection of the
+        widget's display area and the specified rectangle are visible whilst
+        keeping the scrolling position within the bounds and changing it as
+        little as possible. In particular, if the rectangle is larger than
+        the display area along an axis, there may be no scroll at all along
+        it.
+        """
+        self.scroll(self._scroll_to(pos, size))
     def on_scroll(self, oldpos):
         """
         Event handler for scrolling
 
         oldpos is the old scrolling position; the current one can be
         determined by inspecting the scrollpos attribute of self.
+        The default implementation calls update_scrollbars().
 
         Called by Scrollable from scroll(); handled by the widget class and
         Scrollable.
         """
-        if self.scrollbars['vert']:
-            self.scrollbars['vert'].update()
-        if self.scrollbars['horiz']:
-            self.scrollbars['horiz'].update()
+        self.update_scrollbars()
     def on_highlight(self, active):
         """
         Event handler for highlighting a scrollbar
@@ -382,6 +421,16 @@ class Scrollable:
         elif event[0] == _curses.KEY_RIGHT:
             return self.scroll((1, 0), True)
         return False
+    def update_scrollbars(self):
+        """
+        Update the scrollbars associated with this widget
+
+        This should happen whenever the scrolling-related parameters change.
+        """
+        if self.scrollbars['vert']:
+            self.scrollbars['vert'].update()
+        if self.scrollbars['horiz']:
+            self.scrollbars['horiz'].update()
 
 class WidgetRoot(object):
     """
@@ -1394,16 +1443,6 @@ class Viewport(SingleContainer, Scrollable):
     background   : The background attribute of the offscreen pad.
     background_ch: The background character of the offscreen pad.
     """
-    @classmethod
-    def calc_shift(cls, offset, maxoffs, size, rect):
-        ret = list(offset)
-        br = subpos(addpos(rect[:2], rect[2:]), size)
-        if ret[0] < br[0]: ret[0] = br[0]
-        if ret[1] < br[1]: ret[1] = br[1]
-        if ret[0] > rect[0]: ret[0] = rect[0]
-        if ret[1] > rect[1]: ret[1] = rect[1]
-        ret[:] = (zbound(ret[0], maxoffs[0]), zbound(ret[1], maxoffs[1]))
-        return ret
     def __init__(self, **kwds):
         "Initializer"
         SingleContainer.__init__(self, **kwds)
@@ -1483,31 +1522,33 @@ class Viewport(SingleContainer, Scrollable):
         ret = SingleContainer.event(self, event)
         if not ret:
             if self.scroll_event(event):
-                self.grab_input(None)
                 return True
         return ret
-    def grab_input(self, rect, pos=None, child=None, full=False):
+    def grab_input(self, rect, pos=None, child=None, full=False,
+                   _scroll=True):
         "Make this widget in charge of the focus"
-        if rect is not None:
-            oldpos = tuple(self.scrollpos)
-            new_offset = self.calc_shift(oldpos, self.maxscrollpos,
-                                         self.size, rect)
+        # Scroll to contain as much as possible, if enabled.
+        self._curpos = pos
+        if _scroll:
+            new_offset = self.scrollpos
+            if rect is not None:
+                new_offset = self._scroll_to(rect[:2], rect[2:])
             if pos is not None:
-                new_offset = self.calc_shift(new_offset, self.maxscrollpos,
-                    self.size, (pos[0], pos[1], 1, 1))
-            self.scrollpos[:] = new_offset
-            if new_offset[0] != oldpos[0] or new_offset[1] != oldpos[1]:
-                self.on_scroll(oldpos)
-            effpos = subpos(self.pos, new_offset)
-            rect = shiftrect(rect, effpos)
-            # Constrain rect to own bounds.
-            rect = boundrect(rect, self.rect)
-        else:
-            effpos = subpos(self.pos, self.scrollpos)
+                new_offset = self._scroll_to(pos, (1, 1), new_offset)
+            self.scroll(new_offset)
+        # Translate/clamp rect.
+        if rect is not None:
+            # Bring into external coordinates.
+            rect = shiftrect(unshiftrect(rect, self.scrollpos), self.pos)
+            # Clamp to our own rect.
+            rect = intersectrect(rect, self.rect)
+        # Translate/hide pos.
         if pos is not None:
-            pos = (zbound(pos[0], self.padsize[0] - 1),
-                   zbound(pos[1], self.padsize[1] - 1))
-            pos = addpos(effpos, pos)
+            pos = addpos(subpos(pos, self.scrollpos), self.pos)
+            c = addpos(self.pos, self.size)
+            if pos[0] < 0 or pos[1] < 0 or pos[0] >= c[0] or pos[1] >= c[1]:
+                pos = None
+        # Let parent class handle the rest.
         SingleContainer.grab_input(self, rect, pos, child, full)
     def invalidate(self, rec=False, child=None):
         "Mark this widget as in need of a redraw"
@@ -1523,6 +1564,7 @@ class Viewport(SingleContainer, Scrollable):
         "Handle a scroll event"
         Scrollable.on_scroll(self, oldpos)
         if tuple(oldpos) != tuple(self.scrollpos):
+            self.grab_input(None)
             self.invalidate()
 
 class StackContainer(Container):
@@ -3637,7 +3679,7 @@ def main():
         if _LOG:
             _LOG.append('')
             import sys
-            sys.stderr.write('\n'.join(map(str, LOG)))
+            sys.stderr.write('\n'.join(map(str, _LOG)))
             sys.stderr.flush()
 
 if __name__ == '__main__': main()
