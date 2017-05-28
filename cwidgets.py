@@ -1564,10 +1564,9 @@ class Viewport(SingleContainer, Scrollable):
     def on_scroll(self, oldpos):
         "Handle a scroll event"
         Scrollable.on_scroll(self, oldpos)
-        if tuple(oldpos) != tuple(self.scrollpos):
-            if self._focused is not None:
-                self.grab_input(None, pos=self._curpos, _scroll=False)
-            self.invalidate()
+        if self._focused is not None:
+            self.grab_input(None, pos=self._curpos, _scroll=False)
+        self.invalidate()
 
 class StackContainer(Container):
     """
@@ -2463,6 +2462,7 @@ class TextWidget(BoxWidget, Scrollable):
         self.textbgch = kwds.get('textbgch', '\0')
         self.align = parse_pair(kwds.get('align'), (ALIGN_LEFT, ALIGN_TOP))
         self.cmaxsize = parse_pair(kwds.get('cmaxsize'))
+        self._inner_rect = None
         self._extra_col = False
         self._text = text
         self._lines = None
@@ -2493,8 +2493,16 @@ class TextWidget(BoxWidget, Scrollable):
     def make(self):
         "Perform a layout refresh on this widget"
         BoxWidget.make(self)
+        i = (1 if self.border else 0)
+        tp, ctp = self._text_prefix()
+        cts, ts = self._text_suffix()
+        if self._text: tp, ts = tp + ctp, cts + ts
+        self._inner_rect = (i + len(tp), i,
+            self.size[0] - len(tp) - len(ts) - 2 * i,
+            self.size[1] - 2 * i)
+        self.maxscrollpos = maxpos(subpos(self.contentsize, self.size),
+                                   (0, 0))
         self._update_indents()
-        self.maxscrollpos = maxpos(subpos(self.contentsize, self.size), (0, 0))
         self.update_scrollbars()
     def draw_self(self, win):
         "Draw this widget to the given window"
@@ -2529,6 +2537,28 @@ class TextWidget(BoxWidget, Scrollable):
         if suff:
             win.addstr(self.pos[1] + i + h - 1, self.pos[0] + i + w +
                        len(pref), suff, self.attr)
+    def grab_input(self, rect, pos=None, child=None, full=False,
+                   _translate=False):
+        "Bring focus to the specified area"
+        if _translate:
+            # Scroll to new location.
+            sp = self.scrollpos
+            if rect is not None:
+                sp = self._scroll_to(rect[:2], rect[2:], sp)
+            if pos is not None:
+                sp = self._scroll_to(pos, (1, 1), sp)
+            self.scroll(sp)
+            # Translate rect/pos.
+            disp = addpos(self.pos, subpos(self._inner_rect[:2], self.scrollpos))
+            if rect is not None:
+                rect = shiftrect(rect, disp)
+            if pos is not None:
+                pos = addpos(pos, disp)
+        BoxWidget.grab_input(self,  rect, pos, child, full)
+    def on_scroll(self, oldpos):
+        "Handle the event of an external scroll"
+        Scrollable.on_scroll(self, oldpos)
+        self.invalidate()
     def _text_prefix(self):
         """
         Obtain the "text prefix" of this widget
@@ -2904,16 +2934,12 @@ class EntryBox(TextWidget):
             x, y = self.curpos[:2]
             x += self._indents[y]
             y += self._vindent
-            if self.border:
-                x += 1
-                y += 1
-            self.scroll_to((x, y))
-            cpos = addpos(self.pos, subpos((x, y), self.scrollpos))
+            cpos = (x, y)
             if first:
-                rect = self.rect
+                rect = (0, 0, self._inner_rect[2], self._inner_rect[3])
             else:
                 rect = (cpos[0], cpos[1], 1, 1)
-            self.grab_input(rect, cpos)
+            self.grab_input(rect, cpos, _translate=True)
     def on_focuschange(self):
         """
         Handle the change of focus state
@@ -3597,7 +3623,8 @@ def mainloop(scr):
                                 attrs=_curses.color_pair(2)),
                    slot=MarginContainer.POS_TOP)
     tvpl = tvph.add(Label('entry test', attr=_curses.color_pair(2)))
-    entr = tvc.add(EntryBox(multiline=True, cmaxsize=(60, 10),
+    entr = tvc.add(EntryBox(multiline=True, border=True, cminsize=(40, 5),
+                            cmaxsize=(60, 10),
                             attr_normal=_curses.color_pair(1)))
     tvv = tvc.add(entr.bind(Scrollbar(Scrollbar.DIR_VERTICAL,
                                       attr_highlight=_curses.color_pair(5))),
