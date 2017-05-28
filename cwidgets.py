@@ -2532,7 +2532,9 @@ class TextWidget(BoxWidget, Scrollable):
             enc = lambda x: x.encode(_ENCODING)
         sx, sy = self.scrollpos
         for d, l in zip(self._indents[sy:sy+h], self._lines[sy:sy+h]):
-            win.addnstr(y + i, x + i + d, enc(l[sx:]), w, self.attr)
+            si, so = max(d - sx, 0), max(sx - d, 0)
+            eo = max(so + w - si, 0)
+            win.addstr(y + i, x + i + si, enc(l[so:eo]), self.attr)
             y += 1
         win.addstr(self.pos[1] + i, self.pos[0] + i, pref, self.attr)
         if suff:
@@ -3625,8 +3627,8 @@ def mainloop(scr):
                                 attrs=_curses.color_pair(2)),
                    slot=MarginContainer.POS_TOP)
     tvpl = tvph.add(Label('entry test', attr=_curses.color_pair(2)))
-    entr = tvc.add(EntryBox(multiline=True, cminsize=(40, 5),
-                            cmaxsize=(60, 10),
+    entr = tvc.add(EntryBox(multiline=True, align=ALIGN_CENTER,
+                            cminsize=(40, 5), cmaxsize=(60, 10),
                             attr_normal=_curses.color_pair(1)))
     tvv = tvc.add(entr.bind(Scrollbar(Scrollbar.DIR_VERTICAL,
                                       attr_highlight=_curses.color_pair(5))),
