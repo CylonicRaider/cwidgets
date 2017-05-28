@@ -2468,16 +2468,15 @@ class TextWidget(BoxWidget, Scrollable):
         self._lines = None
         self._indents = None
         self._vindent = None
-        self._natsize = None
         self.contentsize = (0, 0)
         self.focusable = False
     def getprefsize(self):
         "Calculate the preferred size of this widget"
         # Force calculation of the relevant values.
         self.text = self._text
-        ps, cm = self._natsize, self.cmaxsize
-        return (ps[0] if cm[0] is None else min(ps[0], cm[0]),
-                ps[1] if cm[1] is None else min(ps[1], cm[1]))
+        cs, cm = self.contentsize, self.cmaxsize
+        return (cs[0] if cm[0] is None else min(cs[0], cm[0]),
+                cs[1] if cm[1] is None else min(cs[1], cm[1]))
     def _update_indents(self):
         "Internal layout helper"
         self.text = self._text
@@ -2485,8 +2484,9 @@ class TextWidget(BoxWidget, Scrollable):
         tp, ctp = self._text_prefix()
         cts, ts = self._text_suffix()
         if self._text: tp, ts = tp + ctp, cts + ts
-        ew = self.size[0] - len(tp) - len(ts) - 2 * i
-        eh = self.size[1] - 2 * i
+        size = maxpos(self.contentsize, self.size)
+        ew = size[0] - len(tp) - len(ts) - 2 * i
+        eh = size[1] - 2 * i
         self._indents = tuple(int((ew - len(l)) * self.align[0])
                               for l in self._lines)
         self._vindent = int((eh - len(self._lines)) * self.align[1])
@@ -2494,9 +2494,8 @@ class TextWidget(BoxWidget, Scrollable):
         "Perform a layout refresh on this widget"
         BoxWidget.make(self)
         self._update_indents()
-        ps = self.prefsize
-        self.maxscrollpos = subpos(ps, self.size)
-        self.contentsize = maxpos(ps, self.size)
+        self.maxscrollpos = maxpos(subpos(self.contentsize, self.size), (0, 0))
+        self.update_scrollbars()
     def draw_self(self, win):
         "Draw this widget to the given window"
         BoxWidget.draw_self(self, win)
@@ -2581,7 +2580,7 @@ class TextWidget(BoxWidget, Scrollable):
         if text: tp, ts = tp + ctp, cts + ts
         ps[0] += len(tp) + len(ts)
         if self._extra_col: ps[0] += 1
-        self._natsize = tuple(ps)
+        self.contentsize = tuple(ps)
         self.invalidate_layout()
 
 class Label(TextWidget):
@@ -2908,25 +2907,7 @@ class EntryBox(TextWidget):
             if self.border:
                 x += 1
                 y += 1
-            ps = self.prefsize
-            if x >= ps[0]:
-                x = ps[0] - 1
-            if y >= ps[1]:
-                y = ps[1] - 1
-            nsp = list(self.scrollpos)
-            if x < nsp[0]:
-                nsp[0] = x
-            elif x - self.size[0] + 1 >= nsp[0]:
-                nsp[0] = x - self.size[0] + 1
-            if y < nsp[1]:
-                nsp[1] = y
-            elif y - self.size[1] + 1 >= nsp[1]:
-                nsp[1] = y - self.size[1] + 1
-            if x < 0:
-                x = 0
-            if y < 0:
-                y = 0
-            self.scroll(nsp)
+            self.scroll_to((x, y))
             cpos = addpos(self.pos, subpos((x, y), self.scrollpos))
             if first:
                 rect = self.rect
@@ -3314,10 +3295,10 @@ class Scrollbar(BaseStrut):
         idx = (1 if self.dir.vert else 0)
         offs = self.bound.scrollpos[idx]
         maxoffs = self.bound.maxscrollpos[idx]
-        size = self.bound.size[idx]
         isize = self.bound.contentsize[idx]
+        size = isize - maxoffs
         ssize = self.size[idx] - 2
-        if isize == size or ssize == 0:
+        if maxoffs == 0 or size == 0 or ssize == 0:
             self._handle = None
         else:
             hlen = max(size * ssize // isize, 1)
