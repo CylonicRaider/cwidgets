@@ -1562,7 +1562,8 @@ class Viewport(SingleContainer, Scrollable):
         if pos is not None:
             pos = addpos(subpos(pos, self.scrollpos), self.pos)
             c = addpos(self.pos, self.size)
-            if pos[0] < 0 or pos[1] < 0 or pos[0] >= c[0] or pos[1] >= c[1]:
+            if (pos[0] < self.pos[0] or pos[1] < self.pos[1] or
+                    pos[0] >= c[0] or pos[1] >= c[1]):
                 pos = None
         # Let parent class handle the rest.
         SingleContainer.grab_input(self, rect, pos, child, full)
