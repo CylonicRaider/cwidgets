@@ -615,9 +615,9 @@ class WidgetRoot(object):
                 self.make()
             if not self.valid_display:
                 self.redraw()
-            last_update = _time.time()
             ch = self.window.getch()
             self._process_input(ch)
+            last_update = _time.time()
             self.window.nodelay(1)
             while _time.time() - last_update < 0.1:
                 ch = self.window.getch()
