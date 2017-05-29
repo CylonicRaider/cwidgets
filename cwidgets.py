@@ -3372,15 +3372,13 @@ class Slider(BaseStrut):
         self.attr = self.attr_normal
     def getprefsize(self):
         "Obtain the preferred size of this widget"
-        ret = (1, 1)
-        if self.dir.vert: ret = ret[::-1]
-        return maxpos(ret, BaseStrut.getprefsize(self))
+        return maxpos((1, 1), BaseStrut.getprefsize(self))
     def _handle_pos(self):
         "Internal cursor placement helper"
         if self.min == self.max: return (0, 0)
-        perc = (float(self._value) - self.min) / (self.max - self.min)
-        return ((0, int((self.size[1] - 1) * perc)) if self.dir.vert else
-                (int((self.size[0] - 1) * perc), 0))
+        dist = ((self.size[self.dir.vert] - 1) * (self._value - self.min) //
+                (self.max - self.min))
+        return (0, dist) if self.dir.vert else (dist, 0)
     def draw_self(self, win):
         "Draw this widget to the given window"
         BaseStrut.draw_self(self, win)
