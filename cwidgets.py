@@ -398,12 +398,13 @@ class Scrollable:
             self.scrollbars['vert'].highlight(active)
         if self.scrollbars['horiz']:
             self.scrollbars['horiz'].highlight(active)
-    def scroll_event(self, event):
+    def scroll_event(self, event, source):
         """
         Handle the given event as a scrolling action, if applicable
 
-        The semantics of this method are identical to those of the general
-        event().
+        event is the event to handle; source is the widget the event
+        originated from (may in particular be a scrollbar). The semantics of
+        this method are identical to those of the general event().
         As a guideline, this method *should* be called after other ways of
         consume the event by children and/or this widget have been
         considered.
@@ -420,6 +421,20 @@ class Scrollable:
             return self.scroll((-1, 0), True)
         elif event[0] == _curses.KEY_RIGHT:
             return self.scroll((1, 0), True)
+        elif event[0] == _curses.KEY_PPAGE:
+            if source == self.scrollbars['horiz']:
+                return self.scroll((self.maxscrollpos[0] -
+                                    self.contentsize[0], 0), True)
+            else:
+                return self.scroll((0, self.maxscrollpos[1] -
+                                    self.contentsize[1]), True)
+        elif event[0] == _curses.KEY_NPAGE:
+            if source == self.scrollbars['horiz']:
+                return self.scroll((self.contentsize[0] -
+                                    self.maxscrollpos[0], 0), True)
+            else:
+                return self.scroll((0, self.contentsize[1] -
+                                    self.maxscrollpos[1]), True)
         return False
     def update_scrollbars(self):
         """
@@ -1522,7 +1537,7 @@ class Viewport(SingleContainer, Scrollable):
         "Handle an event"
         ret = SingleContainer.event(self, event)
         if not ret:
-            if self.scroll_event(event):
+            if self.scroll_event(event, self):
                 return True
         return ret
     def grab_input(self, rect, pos=None, child=None, full=False,
@@ -3253,7 +3268,7 @@ class Scrollbar(BaseStrut):
         if event[0] == FocusEvent:
             self._set_focused(event[1])
         if not ret and self.bound:
-            return self.bound.scroll_event(event)
+            return self.bound.scroll_event(event, self)
         return ret
     def focus(self, rev=False):
         "Perform focus traversal"
