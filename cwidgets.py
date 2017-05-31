@@ -1012,19 +1012,21 @@ class Container(Widget):
         if not self.children:
             return False
         elif self._focused is not None:
+            if self._focused.focus(rev): return True
             idx = self.children.index(self._focused)
+            self._refocus(None)
         elif rev:
-            idx = len(self.children) - 1
+            idx = len(self.children)
         else:
-            idx = 0
+            idx = -1
         incr = (-1 if rev else 1)
         while 1:
+            idx += incr
+            if idx in (-1, len(self.children)): break
             ch = self.children[idx]
             if ch.focus(rev):
                 self._refocus(ch)
                 return True
-            idx += incr
-            if idx in (-1, len(self.children)): break
         self._refocus(None)
         return False
     def invalidate(self, rec=False, child=None):
