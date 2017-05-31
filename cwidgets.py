@@ -3238,6 +3238,10 @@ class Scrollbar(BaseStrut):
         ret = (2, 1)
         if self.dir.vert: ret = ret[::-1]
         return maxpos(ret, BaseStrut.getprefsize(self))
+    def make(self):
+        "Perform a layout refresh"
+        BaseStrut.make(self)
+        self.update()
     def draw_self(self, win):
         "Draw this widget to the given window"
         if self.visibility != VisibilityContainer.VIS_VISIBLE:
@@ -3339,7 +3343,7 @@ class Scrollbar(BaseStrut):
         """
         Update to reflect the state of the bound widget
         """
-        if not self.bound: return
+        if not self.bound or self.size is None: return
         idx = (1 if self.dir.vert else 0)
         offs = self.bound.scrollpos[idx]
         maxoffs = self.bound.maxscrollpos[idx]
