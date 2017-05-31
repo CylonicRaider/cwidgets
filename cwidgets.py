@@ -10,7 +10,11 @@ standard key bindings (Tab, Space, Return, ...), and adapts to different
 screen resolutions (if written accordingly).
 
 A typical use (demonstrated on a dialog window would look like this:
->>> # window is a curses window obtained from, for example, initscr().
+>>> # Initialize library
+... init()
+>>> # Somehow obtain a curses window
+... ...
+>>> # Create the root of the widget hierarchy.
 ... root = WidgetRoot(window)
 >>> # Wrap the UI in a Viewport to avoid crashes at small resolutions.
 ... vp = root.add(Viewport())
@@ -25,7 +29,12 @@ A typical use (demonstrated on a dialog window would look like this:
 ... title = title_wrapper.add(Label('cwidgets demo'))
 >>> # Add the content. This could also be a nested Viewport containing
 ... # a more complex UI.
-... content = win.add(Label('Lorem ipsum dolor sit amet'))
+... # When text is typed into the entry box, it will increase smoothly (along
+... # with the remaining UI) until it's 70 columns or 20 rows (because of the
+... # multiline setting, it can have multiple lines) large, then, it will not
+... # grow further (along the corresponding axis), and scroll instead.
+... content = win.add(EntryBox('Lorem ipsum dolor sit amet', multiline=True,
+                               cmaxsize=(70, 20)))
 >>> # Bind a vertical scrollbar to the content
 ... sbv = win.add(content.bind(Scrollbar(Scrollbar.DIR_VERTICAL)),
 ...               slot=MarginContainer.POS_RIGHT)
