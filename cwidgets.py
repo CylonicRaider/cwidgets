@@ -249,6 +249,46 @@ class Scaling(NumericConstant):
 SCALE_COMPRESS = Scaling(0.0, 'SCALE_COMPRESS')
 SCALE_STRETCH = Scaling(1.0, 'SCALE_STRETCH')
 
+class Focusable:
+    """
+    A mixin classes for "simply" focusable widgets
+
+    This class provides common methods for non-container widgets that can
+    be focused as a whole.
+    """
+    def __init__(self):
+        """
+        Initializer
+        """
+        self.focused = False
+    def focus(self, rev=False):
+        """
+        Perform focus traversal
+        """
+        return (not self.focused)
+    def focus_event(self, event):
+        """
+        Handle a focus-related event
+
+        Only FocusEvent is interpreted. The semantics are the same as for
+        event().
+        """
+        if event[0] == FocusEvent:
+            self.set_focused(event[1])
+        return False
+    def set_focused(self, state):
+        """
+        Set the current focus state
+        """
+        if state == self.focused: return
+        self.focused = state
+        self.on_focuschange()
+    def on_focuschange(self):
+        """
+        Handle the event of a focus state change
+        """
+        pass
+
 class Scrollable:
     """
     A mixin class denoting widgets whose contents can be scrolled
@@ -1451,7 +1491,7 @@ class TeeContainer(AlignContainer):
                  self.attrs[1])
         AlignContainer.draw_inner(self, win)
 
-class Viewport(SingleContainer, Scrollable):
+class Viewport(Scrollable, SingleContainer):
     """
     A container showing only part of its child
 
@@ -2451,7 +2491,7 @@ class BoxWidget(Widget):
         self.draw_box(win, self.pos, self.size, self.background,
                       self.background_ch, self.border)
 
-class TextWidget(BoxWidget, Scrollable):
+class TextWidget(Scrollable, BoxWidget):
     """
     A widget that displays text
 
@@ -2652,7 +2692,7 @@ class Label(TextWidget):
     should be used when nothing further is desired.
     """
 
-class Button(TextWidget):
+class Button(Focusable, TextWidget):
     """
     A UI element that can be focused and "invoked", performing some action
 
@@ -2674,42 +2714,32 @@ class Button(TextWidget):
     def __init__(self, text='', callback=None, **kwds):
         "Initializer"
         TextWidget.__init__(self, text, **kwds)
+        Focusable.__init__(self)
         self.attr_normal = kwds.get('attr_normal', 0)
         self.attr_active = kwds.get('attr_active', _curses.A_STANDOUT)
         self.callback = callback
         self.attr = self.attr_normal
-        self.focused = False
     def event(self, event):
         "Handle an input event"
         ret = TextWidget.event(self, event)
-        if event[0] in (_KEY_RETURN, ' '):
+        if event[0] == FocusEvent:
+            ret |= self.focus_event(event)
+        elif event[0] in (_KEY_RETURN, ' '):
             self.on_activate()
             return True
-        elif event[0] == FocusEvent:
-            self._set_focused(event[1])
         return ret
-    def focus(self, rev=False):
-        "Perform focus traversal"
-        return (not self.focused)
     def _text_prefix(self):
         "Return the text prefix"
         return ('<', '')
     def _text_suffix(self):
         "Return the text suffix"
         return ('', '>')
-    def _set_focused(self, state):
-        "Internal focus helper"
-        if self.focused == state: return
-        self.focused = state
-        self.on_focuschange()
-        self.invalidate()
     def on_focuschange(self):
-        """
-        Handle a change of focus
-        """
+        "Handle a change of focus"
         self.attr = (self.attr_active if self.focused else self.attr_normal)
         if self.focused:
             self.grab_input(self.rect, self.pos)
+        self.invalidate()
     def on_activate(self):
         """
         Handle an activation of the button
@@ -2818,7 +2848,7 @@ class RadioBox(ToggleButton):
         ToggleButton.on_activate(self)
         self.state = True
 
-class EntryBox(TextWidget):
+class EntryBox(Focusable, TextWidget):
     """
     An editable TextWidget
 
@@ -2841,6 +2871,7 @@ class EntryBox(TextWidget):
     def __init__(self, text='', **kwds):
         "Initializer"
         TextWidget.__init__(self, text, **kwds)
+        Focusable.__init__(self)
         self.attr_normal = kwds.get('attr_normal', 0)
         self.attr_active = kwds.get('attr_active', _curses.A_STANDOUT)
         self.multiline = kwds.get('multiline', False)
@@ -2848,7 +2879,6 @@ class EntryBox(TextWidget):
         self.callback = kwds.get('callback', None)
         self._extra_col = True
         self._curpos = [0, 0, 0]
-        self.focused = False
         self.attr = self.attr_normal
     def make(self):
         "Perform a layout update"
@@ -2882,7 +2912,7 @@ class EntryBox(TextWidget):
         ret = TextWidget.event(self, event)
         st = self.text
         if event[0] == FocusEvent:
-            self._set_focused(event[1])
+            ret |= self.focus_event(event)
         elif event[0] == _KEY_RETURN:
             if self.multiline:
                 self.insert('\n')
@@ -2950,15 +2980,6 @@ class EntryBox(TextWidget):
             self.insert(event[0])
             return True
         return ret
-    def focus(self, rev=False):
-        "Perform focus traversal"
-        return (not self.focused)
-    def _set_focused(self, state):
-        "Internal focus handling helper"
-        if self.focused == state: return
-        self.focused = state
-        self.on_focuschange()
-        self.invalidate()
     def _update_curpos(self, first=False):
         "Internal cursor positioning helper"
         if self.focused:
@@ -2977,6 +2998,7 @@ class EntryBox(TextWidget):
         """
         self.attr = (self.attr_active if self.focused else self.attr_normal)
         self._update_curpos(True)
+        self.invalidate()
     def on_activate(self):
         """
         Handle the "activation" of the widget
@@ -3206,7 +3228,7 @@ class Strut(BaseStrut):
             l = ir[2]
         self.draw_strut(win, (x, y), l, self.dir, self.attr)
 
-class Scrollbar(BaseStrut):
+class Scrollbar(Focusable, BaseStrut):
     """
     A scrollbar
 
@@ -3217,7 +3239,8 @@ class Scrollbar(BaseStrut):
     To be effective, a Scrollbar must be "bound" to a Scrollable using the
     bind() method of the latter. If two scrollbars are bound to a widget and
     one of them is focused, the other one is "highlighted", indicating that
-    either scrolling action can be done from either scrollbar.
+    either scrolling action can be done from either scrollbar. Being focused
+    implies being highlighted as well.
 
     Attributes are:
     attr_normal   : The attribute to use as default.
@@ -3230,13 +3253,13 @@ class Scrollbar(BaseStrut):
     def __init__(self, dir=None, **kwds):
         "Initializer"
         BaseStrut.__init__(self, dir, **kwds)
+        Focusable.__init__(self)
         self.attr_normal = kwds.get('attr_normal', 0)
         self.attr_active = kwds.get('attr_active', _curses.A_STANDOUT)
         self.attr_highlight = kwds.get('attr_highlight', _curses.A_STANDOUT)
         self.visibility = kwds.get('visibility',
             VisibilityContainer.VIS_VISIBLE)
         self.attr = self.attr_normal
-        self.focused = False
         self.highlighted = False
         self.bound = None
         self._handle = None
@@ -3282,7 +3305,7 @@ class Scrollbar(BaseStrut):
         """
         ret = BaseStrut.event(self, event)
         if event[0] == FocusEvent:
-            self._set_focused(event[1])
+            ret |= self.focus_event(event)
         if not ret and self.bound:
             return self.bound.scroll_event(event, self)
         return ret
@@ -3291,15 +3314,10 @@ class Scrollbar(BaseStrut):
         return (not self.focused and
                 not (self.bound and self.bound.focusable) and
                 self.visibility == VisibilityContainer.VIS_VISIBLE)
-    def _set_focused(self, state):
-        "Internal focus helper"
-        if self.focused == state: return
-        self.focused = state
-        self.on_focuschange()
-        self.invalidate()
-        self.highlight(state)
-    def _update_grab(self):
-        "Internal cursor placement helper"
+    def _update_display(self):
+        "Internal display helper"
+        self.attr = (self.attr_active if self.focused else
+            self.attr_highlight if self.highlighted else self.attr_normal)
         if self.focused:
             if self._handle:
                 idx = (1 if self.dir.vert else 0)
@@ -3310,13 +3328,14 @@ class Scrollbar(BaseStrut):
                 self.grab_input(self.rect, tuple(cpos))
             else:
                 self.grab_input(self.rect, self.pos)
+        self.invalidate()
     def on_focuschange(self):
-        """
-        Handle a change of the focus state
-        """
-        self.attr = (self.attr_active if self.focused else
-            self.attr_highlight if self.highlighted else self.attr_normal)
-        self._update_grab()
+        "Handle a change of the focus state"
+        self._update_display()
+        self.highlight(self.focused)
+    def on_highlightchange(self):
+        "Handle a change of the highlighting state"
+        self._update_display()
     def bind(self, parent):
         """
         Bind this scrollbar to the given parent
@@ -3345,7 +3364,7 @@ class Scrollbar(BaseStrut):
         """
         if active == self.highlighted: return
         self.highlighted = active
-        self.on_focuschange()
+        self.on_highlightchange()
         self.invalidate()
         if self.bound is not None: self.bound.on_highlight(active)
     def update(self):
@@ -3372,7 +3391,7 @@ class Scrollbar(BaseStrut):
         self._update_grab()
         self.invalidate()
 
-class Slider(BaseStrut):
+class Slider(Focusable, BaseStrut):
     """
     A means of inputting a number from a given range
 
@@ -3393,13 +3412,13 @@ class Slider(BaseStrut):
         "Initializer"
         kwds.setdefault('dir', self.DIR_HORIZONTAL)
         BaseStrut.__init__(self, **kwds)
+        Focusable.__init__(self)
         self.min = min
         self.max = max
         self.step = step
         self._value = kwds.get('value', self.min)
         self.attr_normal = kwds.get('attr_normal', 0)
         self.attr_active = kwds.get('attr_active', _curses.A_STANDOUT)
-        self.focused = False
         self.attr = self.attr_normal
     def getprefsize(self):
         "Obtain the preferred size of this widget"
@@ -3423,7 +3442,9 @@ class Slider(BaseStrut):
         Handle an input event
         """
         ret = BaseStrut.event(self, event)
-        if event[0] == '+':
+        if event[0] == FocusEvent:
+            ret |= self.focus_event(event)
+        elif event[0] == '+':
             if self.step is None:
                 self.change(1, True)
             else:
@@ -3435,23 +3456,13 @@ class Slider(BaseStrut):
             else:
                 self.change(-1)
             return True
-        elif event[0] == FocusEvent:
-            self._set_focused(event[1])
         return ret
-    def focus(self, rev=False):
-        "Focus traversal helper"
-        return (not self.focused)
-    def _set_focused(self, state):
-        "Internal focusing helper"
-        if self.focused == state: return
-        self.focused = state
-        self.on_focuschange()
-        self.invalidate()
     def on_focuschange(self):
         "Handle a focus state change"
         self.attr = (self.attr_active if self.focused else self.attr_normal)
         if self.focused:
             self.grab_input(self.rect, addpos(self.pos, self._handle_pos()))
+        self.invalidate()
     @property
     def value(self):
         "The current value of the slider"
