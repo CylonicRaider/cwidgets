@@ -525,6 +525,7 @@ class WidgetRoot(object):
         self.widget = None
         self.valid_display = False
         self.valid_layout = False
+        self._grabbing = None
         self._cursorpos = None
         self._init_decoder()
     def _init_decoder(self):
@@ -566,14 +567,18 @@ class WidgetRoot(object):
                 _curses.setsyx(self._cursorpos[1], self._cursorpos[0])
                 _curses.doupdate()
         self.valid_display = True
-    def grab_input(self, rect, pos=None, child=None, full=False):
+    def grab_input(self, rect, pos=None, source=None, full=False):
         """
         Bring focus to the specified area
 
-        Of the arguments, only pos is interpreted, and used to set the cursor
-        position (or to hide the cursor) on the next redraw.
+        Of the arguments, rect is ignored, pos is used to set the cursor
+        position, source determines which widget to give all input if full
+        is true, and full decides exactly that.
         """
-        # TODO: Respect full.
+        if full:
+            self._grabbing = source
+        else:
+            self._grabbing = None
         self._cursorpos = pos
     def event(self, event):
         """
@@ -584,7 +589,9 @@ class WidgetRoot(object):
         those do not succeed or the key was not a TAB, the event is passed on
         to the widget.
         """
-        if event[0] == _KEY_TAB:
+        if self._grabbing is not None:
+            return self._grabbing.event(event)
+        elif event[0] == _KEY_TAB:
             if self.focus(): return True
         elif event[0] == _curses.KEY_BTAB:
             if self.focus(True): return True
@@ -811,20 +818,20 @@ class Widget(object):
         The default implementation does nothing.
         """
         pass
-    def grab_input(self, rect, pos=None, child=None, full=False):
+    def grab_input(self, rect, pos=None, source=None, full=False):
         """
         Render this widget in charge of input
 
         rect is the rectangle that should be visible with respect to that
         (for example, the active input area); pos is where to place the
-        cursor (or None to hide it); child is the child widget the request
-        originated from (if any); full is whether *all* input should be
-        grabbed.
+        cursor (or None to hide it); source is the (potentially deeply
+        nested) widget the request originated from, if any; full is whether
+        *all* input should be redirected to source.
         The default implementation stores the specified values in the
         corresponding instance attributes and propagates the request to
         the parent.
         """
-        if rect is None or child is not None:
+        if rect is None or source is not None:
             self.grabbing = None
             self.grabbing_full = False
             self.cursor_pos = None
@@ -835,7 +842,9 @@ class Widget(object):
                 self.cursor_pos = None
             else:
                 self.cursor_pos = subpos(pos, self.pos)
-        self.parent.grab_input(rect, pos, self, full)
+            if source is None:
+                source = self
+        self.parent.grab_input(rect, pos, source, full)
     def event(self, event):
         """
         Handle an input event
@@ -1591,7 +1600,7 @@ class Viewport(Scrollable, SingleContainer):
             if self.scroll_event(event, self):
                 return True
         return ret
-    def grab_input(self, rect, pos=None, child=None, full=False,
+    def grab_input(self, rect, pos=None, source=None, full=False,
                    _scroll=True):
         "Make this widget in charge of the focus"
         # Scroll to contain as much as possible, if enabled.
@@ -1617,7 +1626,7 @@ class Viewport(Scrollable, SingleContainer):
                     pos[0] >= c[0] or pos[1] >= c[1]):
                 pos = None
         # Let parent class handle the rest.
-        SingleContainer.grab_input(self, rect, pos, child, full)
+        SingleContainer.grab_input(self, rect, pos, source, full)
     def invalidate(self, rec=False, child=None):
         "Mark this widget as in need of a redraw"
         # Child is rendered to offscreen pad, and cannot be invalidated
@@ -2607,7 +2616,7 @@ class TextWidget(Scrollable, BoxWidget):
         if suff:
             win.addstr(self.pos[1] + i + h - 1, self.pos[0] + i + w +
                        len(pref), suff, self.attr)
-    def grab_input(self, rect, pos=None, child=None, full=False,
+    def grab_input(self, rect, pos=None, source=None, full=False,
                    _translate=False):
         "Bring focus to the specified area"
         if _translate:
@@ -2624,7 +2633,7 @@ class TextWidget(Scrollable, BoxWidget):
                 rect = shiftrect(rect, disp)
             if pos is not None:
                 pos = addpos(pos, disp)
-        BoxWidget.grab_input(self,  rect, pos, child, full)
+        BoxWidget.grab_input(self,  rect, pos, source, full)
     def on_scroll(self, oldpos):
         "Handle the event of an external scroll"
         Scrollable.on_scroll(self, oldpos)
