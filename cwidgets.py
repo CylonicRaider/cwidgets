@@ -827,6 +827,10 @@ class Widget(object):
         cursor (or None to hide it); source is the (potentially deeply
         nested) widget the request originated from, if any; full is whether
         *all* input should be redirected to source.
+        Full event grabbing expires unless it is explicitly renewed at the
+        next grab_input() call (for example intended to reposition the
+        cursor). If full grabbing is implemented, a way to escape it should
+        be present as well.
         The default implementation stores the specified values in the
         corresponding instance attributes and propagates the request to
         the parent.
