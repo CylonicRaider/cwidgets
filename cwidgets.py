@@ -3388,8 +3388,7 @@ class Scrollbar(Focusable, BaseStrut):
                             (offs * (hlen - 1) + maxoffs // 2) // maxoffs)
             npos = list(self.pos)
             npos[idx] += 1 + self._handle[0]
-        self._update_grab()
-        self.invalidate()
+        self._update_display()
 
 class Slider(Focusable, BaseStrut):
     """
