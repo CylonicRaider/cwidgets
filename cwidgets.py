@@ -2554,13 +2554,35 @@ class TextWidget(Scrollable, BoxWidget):
     def getprefsize(self):
         "Calculate the preferred size of this widget"
         # Force calculation of the relevant values.
-        self.text = self._text
+        self._calc_metrics()
         ps, cm = self._natsize, self.cmaxsize
         return (ps[0] if cm[0] is None else min(ps[0], cm[0]),
                 ps[1] if cm[1] is None else min(ps[1], cm[1]))
+    def _calc_lines(self):
+        "Internal layout helper"
+        if self._lines is None:
+            self._lines = self.text.split('\n')
+        return self._lines
+    def _calc_metrics(self):
+        "Internal layout helper"
+        if self._natsize is not None: return
+        self._calc_lines()
+        ps = [0, 0]
+        if self._lines:
+            ps = [max(len(i) for i in self._lines), len(self._lines)]
+        if self._extra_col: ps[0] += 1
+        self.contentsize = tuple(ps)
+        if self.border:
+            ps[0] += 2
+            ps[1] += 2
+        tp, ctp = self._text_prefix()
+        cts, ts = self._text_suffix()
+        if self.text: tp, ts = tp + ctp, cts + ts
+        ps[0] += len(tp) + len(ts)
+        self._natsize = tuple(ps)
     def _update_indents(self):
         "Internal layout helper"
-        self.text = self._text
+        self._calc_metrics()
         i = (1 if self.border else 0)
         tp, ctp = self._text_prefix()
         cts, ts = self._text_suffix()
@@ -2581,9 +2603,9 @@ class TextWidget(Scrollable, BoxWidget):
         self._inner_rect = (i + len(tp), i,
             self.size[0] - len(tp) - len(ts) - 2 * i,
             self.size[1] - 2 * i)
+        self._update_indents()
         self.maxscrollpos = maxpos(subpos(self.contentsize,
             self._inner_rect[2:]), (0, 0))
-        self._update_indents()
         self.update_scrollbars()
     def draw_self(self, win):
         "Draw this widget to the given window"
@@ -2638,6 +2660,14 @@ class TextWidget(Scrollable, BoxWidget):
             if pos is not None:
                 pos = addpos(pos, disp)
         BoxWidget.grab_input(self,  rect, pos, source, full)
+    def invalidate_layout(self):
+        "Mark this widget as in need of a layout refresh"
+        BoxWidget.invalidate_layout(self)
+        self.contentsize = None
+        self._lines = None
+        self._indents = None
+        self._vindent = None
+        self._natsize = None
     def on_scroll(self, oldpos):
         "Handle the event of an external scroll"
         Scrollable.on_scroll(self, oldpos)
@@ -2679,22 +2709,8 @@ class TextWidget(Scrollable, BoxWidget):
         return self._text
     @text.setter
     def text(self, text):
-        if text == self._text and self._lines is not None: return
+        if text == self._text: return
         self._text = text
-        self._lines = text.split('\n')
-        ps = [0, 0]
-        if self._lines:
-            ps = [max(len(i) for i in self._lines), len(self._lines)]
-        if self._extra_col: ps[0] += 1
-        self.contentsize = tuple(ps)
-        if self.border:
-            ps[0] += 2
-            ps[1] += 2
-        tp, ctp = self._text_prefix()
-        cts, ts = self._text_suffix()
-        if text: tp, ts = tp + ctp, cts + ts
-        ps[0] += len(tp) + len(ts)
-        self._natsize = tuple(ps)
         self.invalidate_layout()
 
 class Label(TextWidget):
@@ -3020,6 +3036,7 @@ class EntryBox(Focusable, TextWidget):
             self.callback()
     def _calc_curpos(self, value, rel=False, xy=True):
         "Internal cursor positioning helper"
+        self._calc_lines()
         if rel:
             scp = self.curpos
             if not self._text:
