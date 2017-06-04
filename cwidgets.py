@@ -2922,7 +2922,7 @@ class EntryBox(Focusable, TextWidget):
         standard QWERTY keyboards):
         Return    (^M): Append a newline character at the cursor position, or
                         "invoke" the widget if in single-line mode.
-        EOL           : Insert a new line unconditionally (FIXME).
+        EOL           : Same as Return.
         BACKSPACE     : Remove the character just before the cursor.
         Backspace (^?): Remove the character just before the cursor.
         Down          : Move the cursor one line down.
@@ -2942,14 +2942,11 @@ class EntryBox(Focusable, TextWidget):
         st = self.text
         if event[0] == FocusEvent:
             ret |= self.focus_event(event)
-        elif event[0] == _KEY_RETURN:
+        elif event[0] in (_KEY_RETURN, _curses.KEY_EOL):
             if self.multiline:
                 self.insert('\n')
             else:
                 self.on_activate()
-            return True
-        elif event[0] == _curses.KEY_EOL:
-            self.insert('\n')
             return True
         elif (event[0] == _curses.KEY_BACKSPACE or
                 self.backspace_hack and event[0] == 127):
