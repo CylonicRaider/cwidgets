@@ -3150,6 +3150,84 @@ class EntryBox(Focusable, TextWidget):
     def curpos(self, value):
         self._curpos[:] = self._calc_curpos(value)
 
+class Spinner(EntryBox):
+    """
+    A widget for inputting numeric data
+
+    (Additional) attributes are:
+    min : The minimum value.
+    max : The maximum value.
+    step: The step at which the value may change.
+    """
+    def __init__(self, min=0, max=1, step=1, **kwds):
+        kwds.setdefault('align', ALIGN_RIGHT)
+        kwds['multiline'] = False
+        EntryBox.__init__(self, **kwds)
+        self.min = min
+        self.max = max
+        self.step = step
+        self._value = kwds.get('value', self.min)
+        self._text = str(self._value)
+        self._extra_col = False
+    def event(self, event):
+        """
+        Handle an input event
+        """
+        # Capture key presses
+        if event[0] == FocusEvent:
+            self._parse_text()
+        elif event[0] == _curses.KEY_UP:
+            self._parse_text()
+            self.value += self.step
+            return True
+        elif event[0] == _curses.KEY_DOWN:
+            self._parse_text()
+            self.value -= self.step
+            return True
+        elif isinstance(event[0], _unicode):
+            if event[0] not in '0123456789.':
+                return False
+        return EntryBox.event(self, event)
+    def _text_prefix(self):
+        "Return the text prefix"
+        return ('', '')
+    def _text_suffix(self):
+        "Return the text suffix"
+        # Avoid uneven sizing
+        return ('', ' [+-]')
+    def _parse_text(self, correct=True):
+        """
+        Parse the text property and assign the value to the result
+
+        If the text is invalid and correct is true, it is reset to the value
+        instead.
+        """
+        try:
+            if isinstance(self.min, int) and isinstance(self.step, int):
+                self.value = int(self.text)
+            else:
+                self.value = float(self.text)
+        except ValueError:
+            if correct:
+                self._format_text()
+            else:
+                raise
+    def _format_text(self):
+        """
+        Make the text be a proper string representation of the value
+        """
+        self.text = str(self.value)
+    @property
+    def value(self):
+        "The current value of the spinner"
+        return self._value
+    @value.setter
+    def value(self, newvalue):
+        newvalue = max(self.min, min(newvalue, self.max))
+        if newvalue == self._value: return
+        self._value = newvalue
+        self._format_text()
+
 class BaseStrut(Widget):
     """
     A widget that is conceptually similar to a straight line
@@ -3743,7 +3821,9 @@ def mainloop(scr):
     wtc = c2.add(MarginContainer(border=1, background=_curses.color_pair(0)))
     wtlc = wtc.add(TeeContainer(align=0.25), slot=MarginContainer.POS_TOP)
     wtl = wtlc.add(Label('further widget tests'))
-    sld1 = wtc.add(Slider(0, 10, 1))
+    wtcv = wtc.add(VerticalContainer())
+    sld1 = wtcv.add(Slider(0, 10, 1))
+    spn1 = wtcv.add(Spinner(0, 10, 1, cmaxsize=(40, 1)))
     wr.main()
 
 def main():
