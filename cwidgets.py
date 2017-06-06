@@ -2779,6 +2779,27 @@ class Button(Focusable, TextWidget):
         if self.callback is not None:
             self.callback()
 
+class MenuButton(Button):
+    """
+    A button without explicit visual cues
+
+    Intended for use in drop-down menus and the like.
+
+    Additional attributes are:
+    lpad: Whether to offset the left-hand side of the text such that the
+          button would line up with a checkbox.
+    """
+    def __init__(self, text='', callback=None, **kwds):
+        "Initializer"
+        Button.__init__(self, text, callback, **kwds)
+        self.lpad = kwds.get('lpad', False)
+    def _text_prefix(self):
+        "Return the text prefix of this button"
+        return ('   ', ' ') if self.lpad else ('', '')
+    def _text_suffix(self):
+        "Return the text suffix of this button"
+        return ('', '')
+
 class ToggleButton(Button):
     """
     A button that can alternate between multiple "states"
