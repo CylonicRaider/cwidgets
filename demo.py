@@ -2,7 +2,6 @@
 import sys, curses
 
 from cwidgets import *
-from cwidgets import _LOG
 
 def demo(window):
     # Create the root of the widget hierarchy.
@@ -49,11 +48,8 @@ def demo(window):
     # Run it.
     root.main()
 
-try:
+def main():
     init()
     curses.wrapper(demo)
-finally:
-    if _LOG:
-        _LOG.append('')
-        sys.stderr.write('\n'.join(map(str, _LOG)))
-        sys.stderr.flush()
+
+if __name__ == '__main__': main()
