@@ -2944,8 +2944,8 @@ class EntryBox(Focusable, TextWidget):
         Return    (^M): Append a newline character at the cursor position, or
                         "invoke" the widget if in single-line mode.
         EOL           : Same as Return.
-        BACKSPACE     : Remove the character just before the cursor.
         Backspace (^?): Remove the character just before the cursor.
+        BACKSPACE     : Same as Backspace.
         Down          : Move the cursor one line down.
         Up            : Move the cursor one line up.
         Left          : Move the cursor backwards by one position.
