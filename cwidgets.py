@@ -3189,6 +3189,7 @@ class Spinner(EntryBox):
         self.step = step
         self._value = kwds.get('value', self.min)
         self._text = str(self._value)
+        self._curpos = [len(self._text), 0, len(self._text)]
         self._extra_col = False
     def event(self, event):
         """
@@ -3200,10 +3201,12 @@ class Spinner(EntryBox):
         elif event[0] == _curses.KEY_UP:
             self._parse_text()
             self.value += self.step
+            self.curpos = len(self.text)
             return True
         elif event[0] == _curses.KEY_DOWN:
             self._parse_text()
             self.value -= self.step
+            self.curpos = len(self.text)
             return True
         elif isinstance(event[0], _unicode):
             if event[0] not in '0123456789.':
