@@ -296,7 +296,7 @@ class Scrollable:
     Scrollable implements the management of the scrolling position and the
     binding of scroll bars; the widget class remains responsible for
     rendering the widget. The scroll bars are laid out and rendered
-    independently from the scrolling widget.
+    independently of the scrolling widget.
 
     The usage/calling direction provided in the documentation serve as
     suggestions and do not prohibit use not mentioned by them (although care
@@ -730,7 +730,7 @@ class Widget(object):
         Initializer
 
         Accepts configuration via keyword arguments:
-        minsize: The minsize attribute.
+        cminsize: The cminsize attribute.
         """
         self.cminsize = kwds.get('cminsize', (0, 0))
         self.parent = None
@@ -951,7 +951,7 @@ class Container(Widget):
     A widget "containing" others
 
     A container is responsible for the management, layout, and rendering of
-    its children. Children may expect to be laid out at (unconditionally) no
+    its children. Children may expect (unconditionally) to be laid out at no
     less than their minimum size, and preferably at their preferred size.
     The minimum and preferred sizes of the container should be chosen such
     that this is possible.
@@ -1508,13 +1508,19 @@ class Viewport(Scrollable, SingleContainer):
     """
     A container showing only part of its child
 
-    A Viewport renders its child to an offscreen pad and then displays part
-    of it in its display area. Thus, the child can be (significantly) larger
-    than the viewport itself.
+    A Viewport renders its child to an offscreen (curses) pad and then
+    displays part of the pad in its display area. Thus, the child can be
+    (significantly) larger than the viewport itself.
 
     Attributes are:
     restrict_size: Attempt to adapt the child to the viewport's size as far
-                   as possible.
+                   as possible: if the viewport's width/height is between the
+                   child's minimum and preferred width/height, the child
+                   receives the viewport's size instead of its preferred size
+                   along that axis. Note that the child is always at least as
+                   large as the Viewport; wrap it in an AlignContainer to
+                   ensure it always stays at its preferred size if that is
+                   desired.
     cmaxsize     : The maximum size of the Viewport.
     default_attr : The attribute to be used as the "default" attribute of the
                    offscreen pad.
@@ -1765,10 +1771,9 @@ class MarginContainer(Container):
     preferred size along those axes where they do not touch the center
     region (in particular, the corners are thus along both axes), and
     according to the remaining size along the other axes (thus, the widget
-    in the  center stretches/shrinks to accomodate changes of the
-    container's size). If the optional border specified, the corner widgets
-    are drawn *on top of it*, and all border regions have a size of at least
-    1x1.
+    at the center stretches/shrinks to accomodate changes of the container's
+    size). If the optional border specified, the corner widgets are drawn *on
+    top of it*, and all border regions have a size of at least 1x1.
     If a child is inserted into a region that is already occupied, the
     previous inhabitant is evicted, so that there always is at most one
     child per region.
@@ -2251,7 +2256,7 @@ class GridContainer(Container):
     layout purposes, and have common growing and shrinking weights, as well
     as user-definable minimum sizes. Layout along the vertical axis is
     independent from that along the horizontal one.
-    Each grid cell can be populated by at most one child; trying to add
+    Each grid cell may be populated with at most one child; trying to add
     another one will evict the previous one.
 
     Attributes are:
@@ -3112,7 +3117,7 @@ class EntryBox(Focusable, TextWidget):
     def edit(self, delete=None, moveto=None, insert=None, adjust=None,
              rel=False):
         """
-        Perform an editing actions
+        Perform an editing action
 
         The arguments (except rel) are processed in the order they are
         passed:
