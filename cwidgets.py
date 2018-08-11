@@ -496,6 +496,29 @@ class Scrollable:
         if self.scrollbars['horiz']:
             self.scrollbars['horiz'].update()
 
+class Styler(object):
+    """
+    A class responsible for managing "styles" of widgets
+
+    The WidgetRoot, Widget, and Container classes cooperate to ensure a
+    widget (along with its children, recursively) is processed by a Styler
+    when it is added to a hierarchy.
+    """
+    def __init__(self, parent=None):
+        """
+        Instance initializer
+
+        The only argument allows setting the "parent" attribute.
+        """
+        self.parent = parent
+    def style(self, widget):
+        """
+        Apply styling to the given widget
+
+        The default implementation delegates to the parent, if any.
+        """
+        if self.parent is not None: return self.parent.style(widget)
+
 class WidgetRoot(object):
     """
     A container for a widget hierarchy directly interfacing curses
@@ -512,6 +535,7 @@ class WidgetRoot(object):
     Attributes are:
     window       : The curses window to access.
     widget       : The (only) widget to host.
+    styler       : A Styler instance to present to contained widgets.
     valid_display: Whether any part of self needs to be redrawn.
     valid_layout : Whether the layout of self needs to be remade.
     """
@@ -523,6 +547,7 @@ class WidgetRoot(object):
         """
         self.window = window
         self.widget = None
+        self.styler = None
         self.valid_display = False
         self.valid_layout = False
         self._grabbing = None
@@ -535,6 +560,11 @@ class WidgetRoot(object):
             self._decoder = f(errors='replace')
         else:
             self._decoder = None
+    def getstyler(self):
+        """
+        Return the Styler of the WidgetRoot
+        """
+        return self.styler
     def make(self):
         """
         Perform layout
@@ -652,6 +682,7 @@ class WidgetRoot(object):
         widget.delete()
         self.widget = widget
         widget.parent = self
+        widget.restyle()
         return widget
     def remove(self, widget):
         """
@@ -707,6 +738,8 @@ class Widget(object):
                    shrink. Can be used for creating rigid spacers of custom
                    sizes.
     parent       : The parent of this widget in the hierarchy.
+    styler       : A Styler instance responsible for this widget. If none
+                   set, the paren widget's styler is used.
     pos          : The position of the widget in the layout.
     size         : The size of the widget in the layout.
     valid_display: Whether the widget has *not* to be redrawn. Implies
@@ -729,11 +762,12 @@ class Widget(object):
         """
         Initializer
 
-        Accepts configuration via keyword arguments:
-        cminsize: The cminsize attribute.
+        Allow setting the cminsize and styler attributes via keyword
+        arguments.
         """
         self.cminsize = kwds.get('cminsize', (0, 0))
         self.parent = None
+        self.styler = kwds.get('styler')
         self.pos = None
         self.size = None
         self.valid_display = False
@@ -758,6 +792,21 @@ class Widget(object):
     def rect(self):
         "The position concatenated with the size"
         return (self.pos[0], self.pos[1], self.size[0], self.size[1])
+    def getstyler(self):
+        """
+        Retrieve the Styler responsible for this widget
+
+        The default implementation returns the styler attribute if it is not
+        None, and delegates to the parent otherwise.
+        """
+        if self.styler is not None: return self.styler
+        return self.parent.getstyler()
+    def restyle(self):
+        """
+        Actually apply this widget's Styler (if any) to it
+        """
+        styler = self.getstyler()
+        if styler is not None: styler.style(self)
     def getminsize(self):
         """
         Compute the minimal layout size of this widget
@@ -978,6 +1027,14 @@ class Container(Widget):
         self.children = []
         self._focused = None
         self._oldrect = None
+    def restyle(self):
+        """
+        Apply this widget's Styler (if any) to it
+
+        All children are recursively restyled as well.
+        """
+        Widget.restyle(self)
+        for ch in self.children: ch.restyle()
     def getminsize(self):
         """
         Calculate the absolute minimum size of the container
@@ -1141,6 +1198,7 @@ class Container(Widget):
         widget._delete_layout()
         self.children.append(widget)
         widget.parent = self
+        widget.restyle()
         self.invalidate_layout()
         return widget
     def remove(self, widget):
@@ -3763,6 +3821,7 @@ def mainloop(scr):
     make_counter = [0]
     wr = WidgetRoot(scr)
     wr.make = wr_make
+    wr.styler = Styler()
     grp = RadioGroup()
     _curses.init_pair(1, _curses.COLOR_WHITE, _curses.COLOR_BLUE)
     _curses.init_pair(2, _curses.COLOR_BLACK, _curses.COLOR_WHITE)
