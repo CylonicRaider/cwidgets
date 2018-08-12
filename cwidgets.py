@@ -509,8 +509,8 @@ class Styler(object):
     do_colors: Whether this Styler should allocate new colors. Since this
                changes global curses state, it is False as default, and
                should only be enabled on the root Styler. For this to
-               function properly, no colors should be defined except by this
-               instance.
+               function properly, no color pairs should be defined except by
+               this instance.
     colors   : The already registered colors pairs, a mapping from (fg, bg)
                tuples to color pair names. If a mapping is present in here,
                getcolor() returns immediately for it regardless of any other
@@ -531,8 +531,8 @@ class Styler(object):
         Apply styling to the given widget
 
         Subclasses should first attempt to style the given widget themselves,
-        and delegate to the parent Styler otherwise.
-        The default implementation delegates to the parent, if any.
+        and delegate to the parent class otherwise.
+        The default implementation delegates to the parent Styler, if any.
         """
         if self.parent is not None: return self.parent.style(widget)
     def getcolor(self, fg, bg, attr=0):
