@@ -515,6 +515,8 @@ class Styler(object):
         """
         Apply styling to the given widget
 
+        Subclasses should first attempt to style the given widget themselves,
+        and delegate to the parent Styler otherwise.
         The default implementation delegates to the parent, if any.
         """
         if self.parent is not None: return self.parent.style(widget)
