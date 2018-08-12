@@ -503,14 +503,29 @@ class Styler(object):
     The WidgetRoot, Widget, and Container classes cooperate to ensure a
     widget (along with its children, recursively) is processed by a Styler
     when it is added to a hierarchy.
+
+    Attributes are:
+    parent   : This styler's parent.
+    do_colors: Whether this Styler should allocate new colors. Since this
+               changes global curses state, it is False as default, and
+               should only be enabled on the root Styler. For this to
+               function properly, no colors should be defined except by this
+               instance.
+    colors   : The already registered colors pairs, a mapping from (fg, bg)
+               tuples to color pair names. If a mapping is present in here,
+               getcolor() returns immediately for it regardless of any other
+               settings.
     """
-    def __init__(self, parent=None):
+    def __init__(self, **kwds):
         """
         Instance initializer
 
-        The only argument allows setting the "parent" attribute.
+        The keyword arguments allow setting the "parent" and "do_colors"
+        attributes.
         """
-        self.parent = parent
+        self.parent = kwds.get('parent')
+        self.do_colors = kwds.get('do_colors', False)
+        self.colors = {}
     def style(self, widget):
         """
         Apply styling to the given widget
@@ -520,6 +535,24 @@ class Styler(object):
         The default implementation delegates to the parent, if any.
         """
         if self.parent is not None: return self.parent.style(widget)
+    def getcolor(self, fg, bg, attr=0):
+        """
+        Retrieve a curses attribute value for the given color pair
+
+        fg and bg are curses color constants. attr is a bitmask of curses.A_*
+        constants that is OR-ed into the result before returning it.
+        """
+        if (fg, bg) in self.colors:
+            return _curses.color_pair(self.colors[fg, bg]) | attr
+        elif self.do_colors:
+            cpi = len(self.colors) + 1
+            _curses.init_pair(cpi, fg, bg)
+            self.colors[fg, bg] = cpi
+            return _curses.color_pair(cpi) | attr
+        elif self.parent is not None:
+            return self.parent.getcolor(fg, bg, attr)
+        else:
+            raise LookupError('Could not map color pair')
 
 class WidgetRoot(object):
     """
@@ -3823,80 +3856,65 @@ def mainloop(scr):
     make_counter = [0]
     wr = WidgetRoot(scr)
     wr.make = wr_make
-    wr.styler = Styler()
+    wr.styler = Styler(do_colors=True)
     grp = RadioGroup()
-    _curses.init_pair(1, _curses.COLOR_WHITE, _curses.COLOR_BLUE)
-    _curses.init_pair(2, _curses.COLOR_BLACK, _curses.COLOR_WHITE)
-    _curses.init_pair(3, _curses.COLOR_BLACK, _curses.COLOR_RED)
-    _curses.init_pair(4, _curses.COLOR_GREEN, _curses.COLOR_BLACK)
-    _curses.init_pair(5, _curses.COLOR_WHITE, _curses.COLOR_RED)
+    c_wb = wr.styler.getcolor(_curses.COLOR_WHITE, _curses.COLOR_BLUE)
+    c_bw = wr.styler.getcolor(_curses.COLOR_BLACK, _curses.COLOR_WHITE)
+    c_br = wr.styler.getcolor(_curses.COLOR_BLACK, _curses.COLOR_RED)
+    c_gb = wr.styler.getcolor(_curses.COLOR_GREEN, _curses.COLOR_BLACK)
+    c_wr = wr.styler.getcolor(_curses.COLOR_WHITE, _curses.COLOR_RED)
     rv = wr.add(Viewport())
     obx = rv.add(BoxContainer(margin=None, border=(0, 0, 0, 1),
-                              padding=(1, 2),
-                              attr_margin=_curses.color_pair(1),
-                              attr_box=_curses.color_pair(4)))
+                              padding=(1, 2), attr_margin=c_wb,
+                              attr_box=c_gb))
     box = obx.add(MarginContainer(border=True,
-                                  background=_curses.color_pair(2)))
-    top = box.add(TeeContainer(attrs=_curses.color_pair(2)),
-                  slot=MarginContainer.POS_TOP)
-    hdr = top.add(Label('cwidgets test', attr=_curses.color_pair(2)))
+                                  background=c_bw))
+    top = box.add(TeeContainer(attrs=c_bw), slot=MarginContainer.POS_TOP)
+    hdr = top.add(Label('cwidgets test', attr=c_bw))
     lo = box.add(HorizontalContainer())
     c1 = lo.add(VerticalContainer())
     btnt = c1.add(Button('test', text_changer))
     chb1 = c1.add(CheckBox('NOP'))
     spc1 = c1.add(Widget(), weight=1)
-    btne = c1.add(Button('exit', sys.exit,
-                         attr_normal=_curses.color_pair(3)))
-    s1 = lo.add(Strut(Strut.DIR_VERTICAL, attr=_curses.color_pair(2),
-                      margin=(0, 1)))
+    btne = c1.add(Button('exit', sys.exit, attr_normal=c_br))
+    s1 = lo.add(Strut(Strut.DIR_VERTICAL, attr=c_bw, margin=(0, 1)))
     c2 = lo.add(VerticalContainer())
     btnr = c2.add(Button('----------------\nback\n----------------',
                          text_back_changer, align=ALIGN_CENTER,
-                         background=_curses.color_pair(3), border=0),
+                         background=c_br, border=0),
                   weight=1)
-    s2 = c2.add(Strut(Strut.DIR_HORIZONTAL, attr=_curses.color_pair(2)))
-    tvc = c2.add(MarginContainer(border=1,
-                                 background=_curses.color_pair(2)))
-    tvph = tvc.add(TeeContainer(align=ALIGN_LEFT,
-                                attrs=_curses.color_pair(2)),
+    s2 = c2.add(Strut(Strut.DIR_HORIZONTAL, attr=c_bw))
+    tvc = c2.add(MarginContainer(border=1, background=c_bw))
+    tvph = tvc.add(TeeContainer(align=ALIGN_LEFT, attrs=c_bw),
                    slot=MarginContainer.POS_TOP)
-    tvpl = tvph.add(Label('entry test', attr=_curses.color_pair(2)))
+    tvpl = tvph.add(Label('entry test', attr=c_bw))
     entr = tvc.add(EntryBox(multiline=True, align=ALIGN_CENTER,
                             cminsize=(40, 5), cmaxsize=(60, 10),
-                            attr_normal=_curses.color_pair(1)))
+                            attr_normal=c_wb))
     tvv = tvc.add(entr.bind(Scrollbar(Scrollbar.DIR_VERTICAL,
-                                      attr_highlight=_curses.color_pair(5))),
+                                      attr_highlight=c_wr)),
                   slot=MarginContainer.POS_RIGHT)
     tvh = tvc.add(entr.bind(Scrollbar(Scrollbar.DIR_HORIZONTAL,
-                                      attr_highlight=_curses.color_pair(5))),
+                                      attr_highlight=c_wr)),
                   slot=MarginContainer.POS_BOTTOM)
-    vpc = c2.add(MarginContainer(border=1,
-                                 background=_curses.color_pair(2)))
-    vpt = vpc.add(TeeContainer(align=ALIGN_RIGHT,
-                               attrs=_curses.color_pair(2)),
+    vpc = c2.add(MarginContainer(border=1, background=c_bw))
+    vpt = vpc.add(TeeContainer(align=ALIGN_RIGHT, attrs=c_bw),
                   slot=MarginContainer.POS_TOP)
-    vptl = vpt.add(Label('scrolling test',
-                         attr=_curses.color_pair(2)))
-    vp = vpc.add(Viewport(background=_curses.color_pair(1),
-                          cmaxsize=(60, 10)), weight=1)
+    vptl = vpt.add(Label('scrolling test', attr=c_bw))
+    vp = vpc.add(Viewport(background=c_wb, cmaxsize=(60, 10)), weight=1)
     sbv = vpc.add(vp.bind(Scrollbar(Scrollbar.DIR_VERTICAL,
-                                    attr_highlight=_curses.color_pair(5))),
+                                    attr_highlight=c_wr)),
                   slot=MarginContainer.POS_RIGHT)
     sbh = vpc.add(vp.bind(Scrollbar(Scrollbar.DIR_HORIZONTAL,
-                                    attr_highlight=_curses.color_pair(5))),
+                                    attr_highlight=c_wr)),
                   slot=MarginContainer.POS_BOTTOM)
-    gbox = vp.add(BoxContainer(margin=(1, 2),
-                               attr_margin=_curses.color_pair(1),
-                               attr_box=_curses.color_pair(2)))
+    gbox = vp.add(BoxContainer(margin=(1, 2), attr_margin=c_wb,
+                               attr_box=c_bw))
     grid = gbox.add(GridContainer(mode_x=LinearContainer.MODE_EQUAL))
-    rdb2 = grid.add(grp.add(RadioBox('grow', callback=grow)),
-                    pos=(0, 0))
-    rdb3 = grid.add(grp.add(RadioBox('shrink', callback=shrink)),
-                    pos=(3, 2))
-    twgc = grid.add(Label(background=_curses.color_pair(3),
-                          align=ALIGN_CENTER), pos=(2, 0))
-    lbl1 = grid.add(Label('[3,3]', align=ALIGN_RIGHT,
-                          background=_curses.color_pair(3)),
+    rdb2 = grid.add(grp.add(RadioBox('grow', callback=grow)), pos=(0, 0))
+    rdb3 = grid.add(grp.add(RadioBox('shrink', callback=shrink)), pos=(3, 2))
+    twgc = grid.add(Label(background=c_br, align=ALIGN_CENTER), pos=(2, 0))
+    lbl1 = grid.add(Label('[3,3]', align=ALIGN_RIGHT, background=c_br),
                     pos=(3, 3))
     lbl2 = grid.add(Label('[0,3]'), pos=(0, 3))
     chw1 = grid.add(AlignContainer(), pos=(4, 1))
