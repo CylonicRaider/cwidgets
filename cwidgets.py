@@ -1676,11 +1676,14 @@ class TeeContainer(AlignContainer):
         self._pads = (0, 1, 0, 1)
     def draw_self(self, win):
         "Draw this widget to the given window"
+        if isinstance(self.attrs, int):
+            at = (self.attrs, self.attrs)
+        else:
+            at = self.attrs
         sw = win.derwin(self._wbox[3], self._wbox[2],
                         self._wbox[1], self._wbox[0])
-        sw.addch(0, 0, self.tees[0], self.attrs[0])
-        sw.insch(self._wbox[3] - 1, self._wbox[2] - 1, self.tees[1],
-                 self.attrs[1])
+        sw.addch(0, 0, self.tees[0], at[0])
+        sw.insch(self._wbox[3] - 1, self._wbox[2] - 1, self.tees[1], at[1])
         AlignContainer.draw_inner(self, win)
 
 class Viewport(Scrollable, SingleContainer):
@@ -1707,7 +1710,7 @@ class Viewport(Scrollable, SingleContainer):
     background   : The background attribute of the offscreen pad.
     background_ch: The background character of the offscreen pad.
     """
-    STYLE_ATTRS = {'background': 'default'}
+    STYLE_ATTRS = {'background': 'background'}
     def __init__(self, **kwds):
         "Initializer"
         SingleContainer.__init__(self, **kwds)
@@ -3913,6 +3916,11 @@ def init():
 
 def mainloop(scr):
     "Inner function of the debugging routine"
+    class WrappingContainer(BoxContainer):
+        pass
+    class ExitButton(Button):
+        def __init__(self, message, **kwds):
+            Button.__init__(self, message, sys.exit, **kwds)
     class DebugStrut(Widget):
         def __init__(self, **kwds):
             Widget.__init__(self, **kwds)
@@ -3953,65 +3961,62 @@ def mainloop(scr):
     wr = WidgetRoot(scr)
     wr.make = wr_make
     wr.styler = ClassStyler(do_colors=True)
+    wr.styler.add_style(Widget,
+                        background=('white', 'blue'),
+                        default=('black', 'white'))
+    wr.styler.add_style(Focusable,
+                        default=('white', 'black'),
+                        highlight=('white', 'red'),
+                        focus=('black', 'white'))
+    wr.styler.add_style(WrappingContainer,
+                        default=('green', 'black'))
+    wr.styler.add_style(ExitButton,
+                        default=('black', 'red'),
+                        focus=('red', 'black'))
     grp = RadioGroup()
-    c_wb = wr.styler.getcolor('white', 'blue')
-    c_bw = wr.styler.getcolor('black', 'white')
-    c_br = wr.styler.getcolor('black', 'red')
-    c_gb = wr.styler.getcolor('green', 'black')
-    c_wr = wr.styler.getcolor('white', 'red')
     rv = wr.add(Viewport())
-    obx = rv.add(BoxContainer(margin=None, border=(0, 0, 0, 1),
-                              padding=(1, 2), attr_margin=c_wb,
-                              attr_box=c_gb))
-    box = obx.add(MarginContainer(border=True,
-                                  background=c_bw))
-    top = box.add(TeeContainer(attrs=c_bw), slot=MarginContainer.POS_TOP)
-    hdr = top.add(Label('cwidgets test', attr=c_bw))
+    obx = rv.add(WrappingContainer(margin=None, border=(0, 0, 0, 1),
+                                   padding=(1, 2)))
+    box = obx.add(MarginContainer(border=True))
+    top = box.add(TeeContainer(), slot=MarginContainer.POS_TOP)
+    hdr = top.add(Label('cwidgets test'))
     lo = box.add(HorizontalContainer())
     c1 = lo.add(VerticalContainer())
     btnt = c1.add(Button('test', text_changer))
     chb1 = c1.add(CheckBox('NOP'))
     spc1 = c1.add(Widget(), weight=1)
-    btne = c1.add(Button('exit', sys.exit, attr_normal=c_br))
-    s1 = lo.add(Strut(Strut.DIR_VERTICAL, attr=c_bw, margin=(0, 1)))
+    btne = c1.add(ExitButton('exit'))
+    s1 = lo.add(Strut(Strut.DIR_VERTICAL, margin=(0, 1)))
     c2 = lo.add(VerticalContainer())
     btnr = c2.add(Button('----------------\nback\n----------------',
-                         text_back_changer, align=ALIGN_CENTER,
-                         background=c_br, border=0),
+                         text_back_changer, align=ALIGN_CENTER, border=0),
                   weight=1)
-    s2 = c2.add(Strut(Strut.DIR_HORIZONTAL, attr=c_bw))
-    tvc = c2.add(MarginContainer(border=1, background=c_bw))
-    tvph = tvc.add(TeeContainer(align=ALIGN_LEFT, attrs=c_bw),
+    s2 = c2.add(Strut(Strut.DIR_HORIZONTAL))
+    tvc = c2.add(MarginContainer(border=1))
+    tvph = tvc.add(TeeContainer(align=ALIGN_LEFT),
                    slot=MarginContainer.POS_TOP)
-    tvpl = tvph.add(Label('entry test', attr=c_bw))
+    tvpl = tvph.add(Label('entry test'))
     entr = tvc.add(EntryBox(multiline=True, align=ALIGN_CENTER,
-                            cminsize=(40, 5), cmaxsize=(60, 10),
-                            attr_normal=c_wb))
-    tvv = tvc.add(entr.bind(Scrollbar(Scrollbar.DIR_VERTICAL,
-                                      attr_highlight=c_wr)),
+                            cminsize=(40, 5), cmaxsize=(60, 10)))
+    tvv = tvc.add(entr.bind(Scrollbar(Scrollbar.DIR_VERTICAL)),
                   slot=MarginContainer.POS_RIGHT)
-    tvh = tvc.add(entr.bind(Scrollbar(Scrollbar.DIR_HORIZONTAL,
-                                      attr_highlight=c_wr)),
+    tvh = tvc.add(entr.bind(Scrollbar(Scrollbar.DIR_HORIZONTAL)),
                   slot=MarginContainer.POS_BOTTOM)
-    vpc = c2.add(MarginContainer(border=1, background=c_bw))
-    vpt = vpc.add(TeeContainer(align=ALIGN_RIGHT, attrs=c_bw),
+    vpc = c2.add(MarginContainer(border=1))
+    vpt = vpc.add(TeeContainer(align=ALIGN_RIGHT),
                   slot=MarginContainer.POS_TOP)
-    vptl = vpt.add(Label('scrolling test', attr=c_bw))
-    vp = vpc.add(Viewport(background=c_wb, cmaxsize=(60, 10)), weight=1)
-    sbv = vpc.add(vp.bind(Scrollbar(Scrollbar.DIR_VERTICAL,
-                                    attr_highlight=c_wr)),
+    vptl = vpt.add(Label('scrolling test'))
+    vp = vpc.add(Viewport(cmaxsize=(60, 10)), weight=1)
+    sbv = vpc.add(vp.bind(Scrollbar(Scrollbar.DIR_VERTICAL)),
                   slot=MarginContainer.POS_RIGHT)
-    sbh = vpc.add(vp.bind(Scrollbar(Scrollbar.DIR_HORIZONTAL,
-                                    attr_highlight=c_wr)),
+    sbh = vpc.add(vp.bind(Scrollbar(Scrollbar.DIR_HORIZONTAL)),
                   slot=MarginContainer.POS_BOTTOM)
-    gbox = vp.add(BoxContainer(margin=(1, 2), attr_margin=c_wb,
-                               attr_box=c_bw))
+    gbox = vp.add(BoxContainer(margin=(1, 2)))
     grid = gbox.add(GridContainer(mode_x=LinearContainer.MODE_EQUAL))
     rdb2 = grid.add(grp.add(RadioBox('grow', callback=grow)), pos=(0, 0))
     rdb3 = grid.add(grp.add(RadioBox('shrink', callback=shrink)), pos=(3, 2))
-    twgc = grid.add(Label(background=c_br, align=ALIGN_CENTER), pos=(2, 0))
-    lbl1 = grid.add(Label('[3,3]', align=ALIGN_RIGHT, background=c_br),
-                    pos=(3, 3))
+    twgc = grid.add(Label(), pos=(2, 0))
+    lbl1 = grid.add(Label('[3,3]', align=ALIGN_RIGHT), pos=(3, 3))
     lbl2 = grid.add(Label('[0,3]'), pos=(0, 3))
     chw1 = grid.add(AlignContainer(), pos=(4, 1))
     chb2 = chw1.add(CheckBox())
