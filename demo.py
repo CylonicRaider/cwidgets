@@ -6,6 +6,14 @@ from cwidgets import *
 def demo(window):
     # Create the root of the widget hierarchy.
     root = WidgetRoot(window)
+    # Make the display less monochrome.
+    root.styler = ClassStyler(do_colors=True)
+    root.styler.add_style(Widget, background=('white', 'blue'),
+                          default=('black', 'white'))
+    root.styler.add_style(Focusable, default=('red', 'white'),
+                          highlight=('black', 'red'), focus=('white', 'red'))
+    root.styler.add_style(EntryBox, default=('white', 'black'),
+                          focus=('black', 'white'))
     # Wrap the UI in a Viewport to avoid crashes at small resolutions.
     vp = root.add(Viewport())
     # Push the UI together to avoid spreading everyting over the screen.
