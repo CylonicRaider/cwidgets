@@ -1,3 +1,8 @@
+#!/usr/bin/env python3
+
+"""
+cwidgets demo script, as taken from the module docstring.
+"""
 
 import sys, curses
 
