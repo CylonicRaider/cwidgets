@@ -515,7 +515,22 @@ class Styler(object):
                tuples to color pair names. If a mapping is present in here,
                getcolor() returns immediately for it regardless of any other
                settings.
+
+    Class attributes:
+    COLOR_NAMES: A mapping from textual color names (black, red, green,
+                 yellow, blue, magenta, cyan, white, and the special
+                 "default" for the value -1) to the corresponding curses
+                 constants.
     """
+    COLOR_NAMES = {'black': _curses.COLOR_BLACK,
+                   'red': _curses.COLOR_RED,
+                   'green': _curses.COLOR_GREEN,
+                   'yellow': _curses.COLOR_YELLOW,
+                   'blue': _curses.COLOR_BLUE,
+                   'magenta': _curses.COLOR_MAGENTA,
+                   'cyan': _curses.COLOR_CYAN,
+                   'white': _curses.COLOR_WHITE,
+                   'default': -1}
     def __init__(self, **kwds):
         """
         Instance initializer
@@ -550,9 +565,13 @@ class Styler(object):
         """
         Retrieve a curses attribute value for the given color pair
 
-        fg and bg are curses color constants. attr is a bitmask of curses.A_*
-        constants that is OR-ed into the result before returning it.
+        fg and bg are curses color constants or textual color names; in the
+        latter case, they are looked up in the COLOR_NAMES mapping. attr is a
+        bitmask of curses.A_* constants that is OR-ed into the result before
+        returning it.
         """
+        if isinstance(fg, str): fg = self.COLOR_NAMES[fg]
+        if isinstance(bg, str): bg = self.COLOR_NAMES[bg]
         if (fg, bg) in self.colors:
             return _curses.color_pair(self.colors[fg, bg]) | attr
         elif self.do_colors:
@@ -3935,11 +3954,11 @@ def mainloop(scr):
     wr.make = wr_make
     wr.styler = ClassStyler(do_colors=True)
     grp = RadioGroup()
-    c_wb = wr.styler.getcolor(_curses.COLOR_WHITE, _curses.COLOR_BLUE)
-    c_bw = wr.styler.getcolor(_curses.COLOR_BLACK, _curses.COLOR_WHITE)
-    c_br = wr.styler.getcolor(_curses.COLOR_BLACK, _curses.COLOR_RED)
-    c_gb = wr.styler.getcolor(_curses.COLOR_GREEN, _curses.COLOR_BLACK)
-    c_wr = wr.styler.getcolor(_curses.COLOR_WHITE, _curses.COLOR_RED)
+    c_wb = wr.styler.getcolor('white', 'blue')
+    c_bw = wr.styler.getcolor('black', 'white')
+    c_br = wr.styler.getcolor('black', 'red')
+    c_gb = wr.styler.getcolor('green', 'black')
+    c_wr = wr.styler.getcolor('white', 'red')
     rv = wr.add(Viewport())
     obx = rv.add(BoxContainer(margin=None, border=(0, 0, 0, 1),
                               padding=(1, 2), attr_margin=c_wb,
