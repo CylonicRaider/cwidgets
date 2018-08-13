@@ -2928,10 +2928,10 @@ class Button(Focusable, TextWidget):
                  activated.
     attr_normal: The attribute to use for the text when the button is not
                  focused.
-    attr_focus : The attribute to use for the text when the button is
+    attr_active: The attribute to use for the text when the button is
                  focused.
     """
-    STYLE_ATTRS = {'attr_normal': 'default', 'attr_focus': 'focus'}
+    STYLE_ATTRS = {'attr_normal': 'default', 'attr_active': 'focus'}
     def __init__(self, text='', callback=None, **kwds):
         "Initializer"
         TextWidget.__init__(self, text, **kwds)
@@ -2940,6 +2940,10 @@ class Button(Focusable, TextWidget):
         self.attr_active = kwds.get('attr_active', _curses.A_STANDOUT)
         self.callback = callback
         self.attr = self.attr_normal
+    def draw_self(self, win):
+        "Draw this widget to the given window"
+        self.attr = (self.attr_active if self.focused else self.attr_normal)
+        TextWidget.draw_self(self, win)
     def event(self, event):
         "Handle an input event"
         ret = TextWidget.event(self, event)
@@ -3110,7 +3114,7 @@ class EntryBox(Focusable, TextWidget):
     callback      : A nullary function to be invoked when this is a
                     single-line input and the user pressed Return.
     """
-    STYLE_ATTRS = {'default': 'attr_normal', 'focus': 'attr_active'}
+    STYLE_ATTRS = {'attr_normal': 'default', 'attr_active': 'focus'}
     def __init__(self, text='', **kwds):
         "Initializer"
         TextWidget.__init__(self, text, **kwds)
@@ -3127,6 +3131,10 @@ class EntryBox(Focusable, TextWidget):
         "Perform a layout update"
         TextWidget.make(self)
         self._update_curpos()
+    def draw_self(self, win):
+        "Draw this widget to the given window"
+        self.attr = (self.attr_active if self.focused else self.attr_normal)
+        TextWidget.draw_self(self, win)
     def event(self, event):
         """
         Handle an input event
@@ -3603,6 +3611,8 @@ class Scrollbar(Focusable, BaseStrut):
         "Draw this widget to the given window"
         if self.visibility != VisibilityContainer.VIS_VISIBLE:
             return
+        self.attr = (self.attr_active if self.focused else
+            self.attr_highlight if self.highlighted else self.attr_normal)
         BaseStrut.draw_self(self, win)
         if self.dir.vert:
             x = self.pos[0] + int(self.size[0] * self.align[0])
@@ -3756,6 +3766,7 @@ class Slider(Focusable, BaseStrut):
         return (0, dist) if self.dir.vert else (dist, 0)
     def draw_self(self, win):
         "Draw this widget to the given window"
+        self.attr = (self.attr_active if self.focused else self.attr_normal)
         BaseStrut.draw_self(self, win)
         Strut.draw_strut(win, self.pos, self.size[self.dir.vert],
                          self.dir, self.attr)
@@ -3918,9 +3929,6 @@ def mainloop(scr):
     "Inner function of the debugging routine"
     class WrappingContainer(BoxContainer):
         pass
-    class ExitButton(Button):
-        def __init__(self, message, **kwds):
-            Button.__init__(self, message, sys.exit, **kwds)
     class DebugStrut(Widget):
         def __init__(self, **kwds):
             Widget.__init__(self, **kwds)
@@ -3965,14 +3973,14 @@ def mainloop(scr):
                         background=('white', 'blue'),
                         default=('black', 'white'))
     wr.styler.add_style(Focusable,
-                        default=('white', 'black'),
-                        highlight=('white', 'red'),
+                        default=('red', 'white'),
+                        highlight=('black', 'red'),
+                        focus=('white', 'red'))
+    wr.styler.add_style(EntryBox,
+                        default=('white', 'blue'),
                         focus=('black', 'white'))
     wr.styler.add_style(WrappingContainer,
                         default=('green', 'black'))
-    wr.styler.add_style(ExitButton,
-                        default=('black', 'red'),
-                        focus=('red', 'black'))
     grp = RadioGroup()
     rv = wr.add(Viewport())
     obx = rv.add(WrappingContainer(margin=None, border=(0, 0, 0, 1),
@@ -3985,7 +3993,7 @@ def mainloop(scr):
     btnt = c1.add(Button('test', text_changer))
     chb1 = c1.add(CheckBox('NOP'))
     spc1 = c1.add(Widget(), weight=1)
-    btne = c1.add(ExitButton('exit'))
+    btne = c1.add(Button('exit', sys.exit))
     s1 = lo.add(Strut(Strut.DIR_VERTICAL, margin=(0, 1)))
     c2 = lo.add(VerticalContainer())
     btnr = c2.add(Button('----------------\nback\n----------------',
