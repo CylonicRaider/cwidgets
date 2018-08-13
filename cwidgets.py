@@ -790,9 +790,14 @@ class Widget(object):
     cursor_pos   : When grabbing is true, the (absolute) position of the
                    cursor as set by the widget.
 
+    Class attributes:
+    STYLE_ATTRS: A mapping from instance attribute names to styling property
+                 names. Used by some Styler subclasses.
+
     See also:
     Container: for specific notes on widgets "containing" other ones.
     """
+    STYLE_ATTRS = {}
     def __init__(self, **kwds):
         """
         Initializer
@@ -1419,6 +1424,7 @@ class BoxContainer(VisibilityContainer):
                  background for the content.
     ch_box     : The character to fill the background with.
     """
+    STYLE_ATTRS = {'attr_margin': 'background', 'attr_box': 'default'}
     @classmethod
     def calc_pads_1d(cls, outer, margin, border, padding, size, minsize):
         "Helper method for layout calculations"
@@ -1581,6 +1587,7 @@ class TeeContainer(AlignContainer):
     attrs: A two-tuple of attributes to be used for the tees. Defaults to
            (0, 0).
     """
+    STYLE_ATTRS = {'attrs': 'default'}
     def __init__(self, **kwds):
         "Initializer"
         AlignContainer.__init__(self, **kwds)
@@ -1621,6 +1628,7 @@ class Viewport(Scrollable, SingleContainer):
     background   : The background attribute of the offscreen pad.
     background_ch: The background character of the offscreen pad.
     """
+    STYLE_ATTRS = {'background': 'default'}
     def __init__(self, **kwds):
         "Initializer"
         SingleContainer.__init__(self, **kwds)
@@ -1883,6 +1891,7 @@ class MarginContainer(Container):
                    "transparent").
     background_ch: The character to fill the box with (defaults to nothing).
     """
+    STYLE_ATTRS = {'background': 'default'}
     class Position(Constant):
         "The position of a widget in a MarginContainer's grid"
     POS_TOPLEFT  = Position('POS_TOPLEFT',  x=0, y=0)
@@ -2532,6 +2541,7 @@ class BoxWidget(Widget):
                    "transparent", which is the default.
     background_ch: The character to be used for filling the background.
     """
+    STYLE_ATTRS = {'background': 'default'}
     @staticmethod
     def draw_box(win, pos, size, attr, ch, border):
         """
@@ -2631,6 +2641,7 @@ class TextWidget(Scrollable, BoxWidget):
               use for both axes, or a (horizontal, pair) pair. The default
               is (ALIGN_LEFT, ALIGN_TOP).
     """
+    STYLE_ATTRS = {'attr': 'default'}
     def __init__(self, text='', **kwds):
         "Initializer"
         BoxWidget.__init__(self, **kwds)
@@ -2838,6 +2849,7 @@ class Button(Focusable, TextWidget):
     attr_focus : The attribute to use for the text when the button is
                  focused.
     """
+    STYLE_ATTRS = {'attr_normal': 'default', 'attr_focus': 'focus'}
     def __init__(self, text='', callback=None, **kwds):
         "Initializer"
         TextWidget.__init__(self, text, **kwds)
@@ -3016,6 +3028,7 @@ class EntryBox(Focusable, TextWidget):
     callback      : A nullary function to be invoked when this is a
                     single-line input and the user pressed Return.
     """
+    STYLE_ATTRS = {'default': 'attr_normal', 'focus': 'attr_active'}
     def __init__(self, text='', **kwds):
         "Initializer"
         TextWidget.__init__(self, text, **kwds)
@@ -3398,6 +3411,7 @@ class Strut(BaseStrut):
     margin: A CSS-like margin to put aroung the strut. It is not filled
             with anything.
     """
+    STYLE_ATTRS = {'attr': 'default'}
     @staticmethod
     def draw_strut(win, pos, len, dir, attr):
         """
@@ -3477,6 +3491,8 @@ class Scrollbar(Focusable, BaseStrut):
                     VisibilityContainer.VIS_* constants, with the
                     corresponding semantics.
     """
+    STYLE_ATTRS = {'attr_normal': 'default', 'attr_highlight': 'highlight',
+                   'attr_active': 'focus'}
     def __init__(self, dir=None, **kwds):
         "Initializer"
         BaseStrut.__init__(self, dir, **kwds)
@@ -3634,6 +3650,7 @@ class Slider(Focusable, BaseStrut):
     attr_normal: The attribute to use when the slider is inactive.
     attr_active: The attribute to use when the slider is focused.
     """
+    STYLE_ATTRS = {'attr_normal': 'default', 'attr_active': 'focus'}
     def __init__(self, min=0, max=1, step=None, **kwds):
         "Initializer"
         kwds.setdefault('dir', self.DIR_HORIZONTAL)
