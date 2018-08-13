@@ -535,6 +535,17 @@ class Styler(object):
         The default implementation delegates to the parent Styler, if any.
         """
         if self.parent is not None: return self.parent.style(widget)
+    def apply_styles(self, widget, styles):
+        """
+        Convenience method for assigning the attributes corresponding to
+        styles on widget
+        """
+        for attr, stylename in widget.STYLE_ATTRS.items():
+            try:
+                value = styles[stylename]
+            except KeyError:
+                continue
+            setattr(widget, attr, value)
     def getcolor(self, fg, bg, attr=0):
         """
         Retrieve a curses attribute value for the given color pair
@@ -553,6 +564,55 @@ class Styler(object):
             return self.parent.getcolor(fg, bg, attr)
         else:
             raise LookupError('Could not map color pair')
+
+class ClassStyler(Styler):
+    """
+    A Styler that styles widgets according to their type
+
+    Styles specified for subclasses override those for superclasses on a
+    per-property basis; properties are inherited as default.
+
+    Attributes:
+    styles: A list of 2-tuples where the first entry is a class and the
+            second one a mapping from styling attribute names to values (i.e.
+            the actual styles). If a value of the latter is a tuple, it is
+            passed through the getcolor() method while processing.
+            For some widget, all items of styles are aggregated in the order
+            they appear in the list, with items whose first entry is not
+            a superclass of the widget's class being ignored.
+            Do not mutate this except by using the corresponding methods.
+    """
+    def __init__(self, **kwds):
+        "Initializer"
+        Styler.__init__(self, **kwds)
+        self.styles = []
+        self._type_map = {}
+    def style(self, widget):
+        "Apply styles to the given widget"
+        matched, styles = self._match_styles(type(widget))
+        if not matched: return Styler.style(self, widget)
+        self.apply_styles(widget, styles)
+    def _match_styles(self, cls):
+        """
+        (Compute and) retrieve a mapping from style attributes to final
+        computed styles for the given widget class
+        """
+        if cls not in self._type_map:
+            matched, res = False, {}
+            for c, styles in self.styles:
+                if not issubclass(cls, c): continue
+                matched = True
+                res.update(styles)
+            for k, v in res.items():
+                if isinstance(v, tuple): res[k] = self.getcolor(*v)
+            self._type_map[cls] = (matched, res)
+        return self._type_map[cls]
+    def add_style(self, cls, **styles):
+        """
+        Let the given class by styled using styles
+        """
+        self.styles.append((cls, styles))
+        self._type_map.clear()
 
 class WidgetRoot(object):
     """
@@ -3873,7 +3933,7 @@ def mainloop(scr):
     make_counter = [0]
     wr = WidgetRoot(scr)
     wr.make = wr_make
-    wr.styler = Styler(do_colors=True)
+    wr.styler = ClassStyler(do_colors=True)
     grp = RadioGroup()
     c_wb = wr.styler.getcolor(_curses.COLOR_WHITE, _curses.COLOR_BLUE)
     c_bw = wr.styler.getcolor(_curses.COLOR_BLACK, _curses.COLOR_WHITE)
