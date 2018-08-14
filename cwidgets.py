@@ -592,6 +592,18 @@ class Styler(object):
         else:
             raise LookupError('Could not map color pair')
 
+class NullStyler(Styler):
+    """
+    A Styler that explicitly does nothing
+    """
+    def style(self, widget, bound):
+        """
+        Apply styles to widget
+
+        This implementation does explicitly nothing (in particular, it does
+        not delegate to anything).
+        """
+
 class ClassStyler(Styler):
     """
     A Styler that styles widgets according to their type
