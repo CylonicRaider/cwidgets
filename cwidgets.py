@@ -648,9 +648,14 @@ class ClassStyler(Styler):
         return self._type_map[cls]
     def add_style(self, cls, **styles):
         """
-        Let the given class by styled using styles
+        Let the given class (or list of classes) by styled using styles
+
+        If class is not a type, it is assumed to be an iterable of classes
+        and each of them is assiged the given style.
         """
-        self.styles.append((cls, styles))
+        classes = (cls,) if isinstance(cls, type) else cls
+        for c in classes:
+            self.styles.append((c, styles))
         self._type_map.clear()
 
 class WidgetRoot(object):
