@@ -558,6 +558,18 @@ class Styler(object):
         The default implementation delegates to the parent Styler, if any.
         """
         if self.parent is not None: return self.parent.style(widget)
+    def resolve_style(self, propname, value):
+        """
+        Compute the final value for an individual styling property
+
+        propname is the name of the property, while value is the value to
+        resolve. Currently, tuples are passed through this instance's
+        getcolor() method to be mapped to curses attribute values.
+        """
+        if isinstance(value, tuple):
+            return self.getcolor(*value)
+        else:
+            return value
     def apply_styles(self, widget, styles):
         """
         Convenience method for assigning the attributes corresponding to
@@ -598,7 +610,7 @@ class NullStyler(Styler):
     """
     def style(self, widget, bound):
         """
-        Apply styles to widget
+        Apply styles to the given widget
 
         This implementation does explicitly nothing (in particular, it does
         not delegate to anything).
@@ -643,7 +655,7 @@ class ClassStyler(Styler):
                 matched = True
                 res.update(styles)
             for k, v in res.items():
-                if isinstance(v, tuple): res[k] = self.getcolor(*v)
+                res[k] = self.resolve_style(k, v)
             self._type_map[cls] = (matched, res)
         return self._type_map[cls]
     def add_style(self, cls, **styles):
@@ -657,6 +669,34 @@ class ClassStyler(Styler):
         for c in classes:
             self.styles.append((c, styles))
         self._type_map.clear()
+
+class InstanceStyler(Styler):
+    """
+    A Styler that only styles individual objects
+
+    Attributes:
+    styles: A mapping from Widget instances to style mapings.
+    """
+    def __init__(self, styles=None, **kwds):
+        if styles is None: styles = {}
+        Styler.__init__(self, **kwds)
+        self.styles = styles
+    def style(self, widget):
+        "Apply styles to the given widget"
+        styles = self.styles.get(widget)
+        if styles is None: return Styler.style(self, widget)
+        values = dict((k, self.resolve_style(k, v))
+                      for k, v in styles.items())
+        self.apply_styles(widget, values)
+    def bind(self, widget, **styles):
+        """
+        Configure the given widget to be styled by self using the given styles
+
+        The widget is returned.
+        """
+        self.styles[widget] = styles
+        widget.styler = self
+        return widget
 
 class WidgetRoot(object):
     """
@@ -3952,8 +3992,6 @@ def init():
 
 def mainloop(scr):
     "Inner function of the debugging routine"
-    class WrappingContainer(BoxContainer):
-        pass
     class DebugStrut(Widget):
         def __init__(self, **kwds):
             Widget.__init__(self, **kwds)
@@ -4004,12 +4042,12 @@ def mainloop(scr):
     wr.styler.add_style(EntryBox,
                         default=('white', 'blue'),
                         focus=('black', 'white'))
-    wr.styler.add_style(WrappingContainer,
-                        default=('green', 'black'))
+    ist = InstanceStyler(parent=wr.styler)
     grp = RadioGroup()
     rv = wr.add(Viewport())
-    obx = rv.add(WrappingContainer(margin=None, border=(0, 0, 0, 1),
-                                   padding=(1, 2)))
+    obx = rv.add(ist.bind(BoxContainer(margin=None, border=(0, 0, 0, 1),
+                                       padding=(1, 2)),
+                          default=('green', 'black')))
     box = obx.add(MarginContainer(border=True))
     top = box.add(TeeContainer(), slot=MarginContainer.POS_TOP)
     hdr = top.add(Label('cwidgets test'))
