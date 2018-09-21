@@ -2910,7 +2910,8 @@ class TextWidget(Scrollable, BoxWidget):
                 sp = self._scroll_to(pos, (1, 1), sp)
             self.scroll(sp)
             # Translate rect/pos.
-            disp = addpos(self.pos, subpos(self._inner_rect[:2], self.scrollpos))
+            disp = addpos(self.pos, subpos(self._inner_rect[:2],
+                                           self.scrollpos))
             if rect is not None:
                 rect = shiftrect(rect, disp)
             if pos is not None:
