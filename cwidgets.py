@@ -3929,6 +3929,29 @@ class Canvas(Widget):
         self.pad.overwrite(win, 0, 0, effpos[1], effpos[0],
                            effpos[1] + self.padsize[1] - 1,
                            effpos[0] + self.padsize[0] - 1)
+    def put(self, pos, char, attr=None):
+        """
+        Display char at pos with the given attribute
+
+        pos is an (x, y) tuple; char is either a single-character string or
+        an integer (denoting a special curses character). If attr is None,
+        default attributes are used; it if is an integer, it is used
+        directly; otherwise, it is passed through this instance's Styler's
+        getcolor() method.
+        """
+        if attr is None:
+            eff_attr = _curses.A_NORMAL
+        elif isinstance(attr, int):
+            eff_attr = attr
+        else:
+            eff_attr = self.getstyler().getcolor(*attr)
+        isacs = isinstance(char, int)
+        if pos[0] == self.padsize[0] - 1:
+            method = self.pad.insch if isacs else self.pad.insstr
+        else:
+            method = self.pad.addch if isacs else self.pad.addstr
+        method(pos[1], pos[0], char, eff_attr)
+        self.invalidate()
 
 class BaseRadioGroup(object):
     """
@@ -4094,8 +4117,11 @@ def mainloop(scr):
     btnt = c1.add(Button('test', text_changer))
     chb1 = c1.add(CheckBox('NOP'))
     spc1 = c1.add(Widget(), weight=1)
-    cnv1 = c1.add(Canvas((8, 4), align=(ALIGN_RIGHT, ALIGN_CENTER)))
-    cnv1.pad.insch(1, 2, 'x', wr.styler.getcolor('black', 'green'))
+    cnv1 = c1.add(Canvas((6, 3), align=(ALIGN_RIGHT, ALIGN_CENTER)))
+    cnv1.put((3, 1), 'x', ('black', 'red'))
+    cnv1.put((2, 1), _curses.ACS_BULLET, ('black', 'green'))
+    cnv1.put((5, 2), _curses.ACS_LRCORNER)
+    cnv1.put((0, 0), _curses.ACS_ULCORNER)
     spc2 = c1.add(Widget(), weight=1)
     btne = c1.add(Button('exit', sys.exit))
     s1 = lo.add(Strut(Strut.DIR_VERTICAL, margin=(0, 1)))
