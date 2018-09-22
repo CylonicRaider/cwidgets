@@ -3893,6 +3893,43 @@ class Slider(Focusable, BaseStrut):
         else:
             self.value += delta
 
+class Canvas(Widget):
+    """
+    A widget retaining display state
+
+    Canvas widgets maintain curses pads which can be either manipulated
+    directly (ensure to call invalidate() after applying changes in this
+    case) or via some exposed convenience methods.
+
+    Attributes are:
+    padsize: The size of the underlying pad.
+    pad    : The curses pad to use.
+    align  : Where to display the pad if the widget is larger than the
+             latter. The default is (ALIGN_CENTER, ALIGN_CENTER).
+    """
+    def __init__(self, padsize, **kwds):
+        "Initializer."
+        Widget.__init__(self, **kwds)
+        self.padsize = padsize
+        self.pad = _curses.newpad(padsize[1], padsize[0])
+        self.align = parse_pair(kwds.get('align'),
+                                (ALIGN_CENTER, ALIGN_CENTER))
+    def getminsize(self):
+        "Obtain the minimum size of this widget"
+        return maxpos(Widget.getminsize(self), self.padsize)
+    def getprefsize(self):
+        "Obtain the preferred size of this widget"
+        return maxpos(Widget.getprefsize(self), self.padsize)
+    def draw_self(self, win):
+        "Draw this widget to the given window"
+        Widget.draw_self(self, win)
+        space = subpos(self.size, self.padsize)
+        effpos = addpos(self.pos, (int(space[0] * self.align[0]),
+                                   int(space[1] * self.align[1])))
+        self.pad.overwrite(win, 0, 0, effpos[1], effpos[0],
+                           effpos[1] + self.padsize[1] - 1,
+                           effpos[0] + self.padsize[0] - 1)
+
 class BaseRadioGroup(object):
     """
     A group of buttons
@@ -4057,6 +4094,9 @@ def mainloop(scr):
     btnt = c1.add(Button('test', text_changer))
     chb1 = c1.add(CheckBox('NOP'))
     spc1 = c1.add(Widget(), weight=1)
+    cnv1 = c1.add(Canvas((8, 4), align=(ALIGN_RIGHT, ALIGN_CENTER)))
+    cnv1.pad.insch(1, 2, 'x', wr.styler.getcolor('black', 'green'))
+    spc2 = c1.add(Widget(), weight=1)
     btne = c1.add(Button('exit', sys.exit))
     s1 = lo.add(Strut(Strut.DIR_VERTICAL, margin=(0, 1)))
     c2 = lo.add(VerticalContainer())
