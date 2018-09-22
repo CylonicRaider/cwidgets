@@ -2718,7 +2718,7 @@ class BoxWidget(Widget):
         if border == True:
             sw.border()
             return
-        elif border == False:
+        elif border in (False, None):
             return
         try:
             border = tuple(border)
@@ -3952,6 +3952,27 @@ class Canvas(Widget):
             method = self.pad.addch if isacs else self.pad.addstr
         method(pos[1], pos[0], char, eff_attr)
         self.invalidate()
+    def fill(self, char=None, attr=None, rect=None, border=None):
+        """
+        Fill rect with char using the given attribute
+
+        char defaults to the null character, attr defaults to default
+        attributes, rect defaults to the entire canvas. border is passed
+        through to BoxWidget.draw_box().
+        """
+        if attr is None:
+            eff_attr = _curses.A_NORMAL
+        elif isinstance(attr, int):
+            eff_attr = attr
+        else:
+            eff_attr = self.getstyler().getcolor(*attr)
+        if char is None:
+            char = '\0'
+        if rect is None:
+            rect = (0, 0, self.padsize[0], self.padsize[1])
+        BoxWidget.draw_box(self.pad, rect[:2], rect[2:], eff_attr, char,
+                           border)
+        self.invalidate()
 
 class BaseRadioGroup(object):
     """
@@ -4118,6 +4139,7 @@ def mainloop(scr):
     chb1 = c1.add(CheckBox('NOP'))
     spc1 = c1.add(Widget(), weight=1)
     cnv1 = c1.add(Canvas((6, 3), align=(ALIGN_RIGHT, ALIGN_CENTER)))
+    cnv1.fill(attr=('green', 'black'), border=True)
     cnv1.put((3, 1), 'x', ('black', 'red'))
     cnv1.put((2, 1), _curses.ACS_BULLET, ('black', 'green'))
     cnv1.put((5, 2), _curses.ACS_LRCORNER)
