@@ -1002,7 +1002,7 @@ class Widget(object):
         """
         Compute the preferred layout size of this widget
 
-        The default implementation merely returns the value of the minsize
+        The default implementation returns the value of the cminsize
         attribute.
         """
         return self.cminsize
@@ -1791,7 +1791,7 @@ class Viewport(Scrollable, SingleContainer):
         self._pad = None
         self._curpos = None
     def getminsize(self):
-        "Obtain the minimum sie of this widget"
+        "Obtain the minimum size of this widget"
         ps, ms = SingleContainer.getminsize(self), self.cmaxsize
         return ((ps[0] if ms[0] is None else min(ps[0], ms[0])),
                 (ps[1] if ms[1] is None else min(ps[1], ms[1])))
