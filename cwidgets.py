@@ -665,7 +665,7 @@ class ClassStyler(Styler):
         If class is not a type, it is assumed to be an iterable of classes
         and each of them is assiged the given style.
         """
-        classes = (cls,) if isinstance(cls, type) else cls
+        classes = (cls,) if callable(cls) else cls
         for c in classes:
             self.styles.append((c, styles))
         self._type_map.clear()
