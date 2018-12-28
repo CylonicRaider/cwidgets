@@ -3846,13 +3846,13 @@ class Slider(Focusable, BaseStrut):
         ret = BaseStrut.event(self, event)
         if event[0] == FocusEvent:
             ret |= self.focus_event(event)
-        elif event[0] == '+':
+        elif event[0] in (_curses.KEY_UP, '+'):
             if self.step is None:
                 self.change(1, True)
             else:
                 self.change(1)
             return True
-        elif event[0] == '-':
+        elif event[0] in (_curses.KEY_DOWN, '-'):
             if self.step is None:
                 self.change(-1, True)
             else:
