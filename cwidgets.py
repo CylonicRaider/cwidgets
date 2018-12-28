@@ -9,7 +9,7 @@ interactive text user interface. The UI can be interacted with using
 standard key bindings (Tab, Space, Return, ...), and adapts to different
 screen resolutions (if written accordingly).
 
-A typical use (demonstrated on a dialog window would look like this:
+A typical use (demonstrated on a dialog window) would look like this:
 >>> # Initialize library
 ... init()
 >>> # Somehow obtain a curses window
