@@ -4124,7 +4124,6 @@ def mainloop(scr):
         stru.min_size[0] -= 1
         stru.min_size[1] -= 1
         stru.invalidate_layout()
-    import sys
     make_counter = [0]
     wr = WidgetRoot(scr)
     wr.make = wr_make
@@ -4160,7 +4159,7 @@ def mainloop(scr):
     cnv1.put((5, 2), _curses.ACS_LRCORNER)
     cnv1.put((0, 0), _curses.ACS_ULCORNER)
     spc2 = c1.add(Widget(), weight=1)
-    btne = c1.add(Button('exit', sys.exit))
+    btne = c1.add(Button('exit', _sys.exit))
     s1 = lo.add(Strut(Strut.DIR_VERTICAL, margin=(0, 1)))
     c2 = lo.add(VerticalContainer())
     btnr = c2.add(Button('----------------\nback\n----------------',
@@ -4222,8 +4221,7 @@ def main():
     finally:
         if _LOG:
             _LOG.append('')
-            import sys
-            sys.stderr.write('\n'.join(map(str, _LOG)))
-            sys.stderr.flush()
+            _sys.stderr.write('\n'.join(map(str, _LOG)))
+            _sys.stderr.flush()
 
 if __name__ == '__main__': main()
