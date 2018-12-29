@@ -3427,6 +3427,7 @@ class EntryBox(Focusable, TextWidget):
             self._lines = None
         if adjust is not None:
             self._curpos[:] = self._calc_curpos(adjust, True)
+        self._calc_lines()
         self._update_indents()
         self._update_curpos()
         if st != oldst:
