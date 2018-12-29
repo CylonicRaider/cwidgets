@@ -2955,6 +2955,11 @@ class TextWidget(Scrollable, BoxWidget):
         The default implementation returns two empty strings.
         """
         return ('', '')
+    def on_textchange(self):
+        """
+        Handle a change of the widget's text
+        """
+        self.invalidate_layout()
     @property
     def text(self):
         """
@@ -2968,7 +2973,8 @@ class TextWidget(Scrollable, BoxWidget):
     def text(self, text):
         if text == self._text: return
         self._text = text
-        self.invalidate_layout()
+        self._lines = None
+        self.on_textchange()
 
 class Label(TextWidget):
     """
@@ -3319,6 +3325,12 @@ class EntryBox(Focusable, TextWidget):
         """
         if self.callback is not None:
             self.callback()
+    def on_textchange(self):
+        "Handle a change of the widget's text"
+        # Clip the cursor position back to bounds.
+        self.curpos = self.curpos[:2]
+        self._update_curpos()
+        TextWidget.on_textchange(self)
     def _calc_curpos(self, value, rel=False, xy=True):
         "Internal cursor positioning helper"
         self._calc_lines()
@@ -3398,27 +3410,27 @@ class EntryBox(Focusable, TextWidget):
         depending on the sign in the latter case), or an X/Y (i.e.
         column/line) pair of coordinates.
         """
-        st, invalid = self.text, False
+        oldst, st = self.text, self.text
         if delete is not None:
             fromval, toval = delete
             fromidx = self._calc_curpos(fromval, rel, True)[2]
             toidx = self._calc_curpos(toval, rel, True)[2]
-            invalid |= (fromidx != toidx)
             st = st[:fromidx] + st[toidx:]
-            self.text = st
+            self._text = st
+            self._lines = None
         if moveto is not None:
             self._curpos[:] = self._calc_curpos(moveto, rel)
         if insert is not None:
             cp = self._curpos[2]
             st = st[:cp] + insert + st[cp:]
-            invalid |= bool(insert)
-            self.text = st
+            self._text = st
+            self._lines = None
         if adjust is not None:
-            self.curpos = self._calc_curpos(adjust, rel=True)
+            self._curpos[:] = self._calc_curpos(adjust, True)
         self._update_indents()
         self._update_curpos()
-        if invalid:
-            self.invalidate_layout()
+        if st != oldst:
+            self.on_textchange()
         else:
             self.invalidate()
     def insert(self, text, moveto=None):
@@ -3465,6 +3477,7 @@ class Spinner(EntryBox):
         # Capture key presses
         if event[0] == FocusEvent:
             self._parse_text()
+            self.curpos = len(self.text)
         elif event[0] == _curses.KEY_UP:
             self._parse_text()
             self.value += self.step
@@ -3498,6 +3511,7 @@ class Spinner(EntryBox):
                 self.value = int(self.text)
             else:
                 self.value = float(self.text)
+            self._format_text()
         except ValueError:
             if correct:
                 self._format_text()
